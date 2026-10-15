@@ -1,10 +1,26 @@
 <?xml version="1.0"?>
 
+<!-- ============================================================================
+文件：xacro/robot.xacro —— Go2 四足机器人的模型定义（xacro = 带变量的 URDF）
+
+【这个文件是干什么的】
+描述机器人由哪些“刚体(link)”和“关节(joint)”组成，以及各自的形状、质量。
+它由 launch 文件用 xacro 命令展开成 URDF，再交给 robot_state_publisher。
+
+【本项目的两种用法】
+use_gazebo 为 true  → 完整模型 + 物理仿真（Gazebo）
+use_gazebo 为 false → 只用于 RViz 显示（规划器启动时用的就是这种）
+
+【结构层次】
+base（虚拟根）→ trunk（躯干）→ { imu_link, front_camera, 四条腿 }
+============================================================================ -->
 <robot name="go2" xmlns:xacro="http://www.ros.org/wiki/xacro">
 
     <xacro:arg name="DEBUG" default="false"/>
+    <!-- 开关：是否生成 Gazebo 仿真相关的部分 -->
     <xacro:arg name="use_gazebo" default="true"/>
 
+    <!-- 引入其它 xacro：常量尺寸、材质、腿部宏、控制器、Gazebo 插件 -->
     <xacro:include filename="$(find go2_description)/xacro/const.xacro"/>
     <xacro:include filename="$(find go2_description)/xacro/materials.xacro"/>
     <xacro:include filename="$(find go2_description)/xacro/leg.xacro"/>
@@ -18,6 +34,7 @@
     <!-- Actually, the rotor will rotate and the joint is not fixed. Reduction ratio should be considered. -->
 
     <!-- Debug mode will hung up the robot, use "true" or "false" to switch it. -->
+    <!-- 调试模式：把机器人固定在原点（先钉一个 world 坐标系） -->
     <xacro:if value="$(arg DEBUG)">
         <link name="world"/>
         <joint name="base_static_joint" type="fixed">
@@ -27,6 +44,7 @@
         </joint>
     </xacro:if> 
 
+    <!-- 虚拟根刚体：一个几乎为零大小的方盒，用来挂住整个机器人 -->
     <link name="base">
         <visual>
             <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -36,12 +54,14 @@
         </visual>
     </link>
 
+    <!-- 把躯干固定在虚拟根上 -->
     <joint name="floating_base" type="fixed">
         <origin rpy="0 0 0" xyz="0 0 0"/>
         <parent link="base"/>
         <child link="trunk"/>
     </joint>
 
+    <!-- 躯干：外观用 base.dae 网格；碰撞体用简化长方体；质量由 const.xacro 提供 -->
     <link name="trunk">
         <visual>
             <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -66,6 +86,7 @@
         </inertial>
     </link>
 
+    <!-- IMU：挂一个近乎无质量的虚拟刚体，Gazebo 会给它发布 IMU 数据 -->
     <joint name="imu_joint" type="fixed">
         <parent link="trunk"/>
         <child link="imu_link"/>
@@ -93,6 +114,7 @@
         </collision>
     </link>
 
+    <!-- 前置相机：只占一个坐标位置（本项目不真的用它出图） -->
     <joint name="front_camera_joint" type="fixed">
         <parent link="trunk"/>
         <child link="front_camera"/>
@@ -129,11 +151,13 @@
         </collision>
     </link>
 -->
+    <!-- 四条腿：由 leg.xacro 的宏生成，参数区分左/右(mirror)和前/后(front_hind) -->
     <xacro:leg name="FR" mirror="-1" mirror_dae= "False" front_hind="1"  front_hind_dae="True"  />
     <xacro:leg name="FL" mirror="1"  mirror_dae="True"   front_hind="1"  front_hind_dae="True"  />
     <xacro:leg name="RR" mirror="-1" mirror_dae="False"  front_hind="-1" front_hind_dae="False" />
     <xacro:leg name="RL" mirror="1"  mirror_dae="True"   front_hind="-1" front_hind_dae="False" />
 
+    <!-- 只在开启 Gazebo 时才生成控制器与仿真插件部分 -->
     <xacro:if value="$(arg use_gazebo)">
         <xacro:go2_ros2_control/>
         <xacro:go2_gazebo/>

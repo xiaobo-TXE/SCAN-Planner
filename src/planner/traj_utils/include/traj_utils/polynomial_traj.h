@@ -1,3 +1,17 @@
+// ============================================================================
+// 文件：include/traj_utils/polynomial_traj.h
+//
+// 【这个文件是干什么的】
+//   定义“多项式轨迹”类 PolynomialTraj —— 用来表示全局参考轨迹。
+//
+// 【数据结构】
+//   一条轨迹由若干“段”组成，每段是一条关于时间 t 的多项式：
+//     x(t) = c0 + c1·t + c2·t² + ... （y、z 同理）
+//   所以它存三组系数（x/y/z），外加每段的时长。
+//
+// 【注意系数的存放顺序】
+//   系数是“从高次到低次”倒着存的（与求值时的写法有关，见 .cpp 的注释）。
+// ============================================================================
 #ifndef _POLYNOMIAL_TRAJ_H
 #define _POLYNOMIAL_TRAJ_H
 
@@ -6,14 +20,18 @@
 
 using std::vector;
 
+// 多项式轨迹类
 class PolynomialTraj
 {
 private:
+  // 每段的时长
   vector<double> times;       // time of each segment
+  // 每段 x/y/z 的多项式系数（注意：按“高次→低次”排列）
   vector<vector<double>> cxs; // coefficient of x of each segment, from n-1 -> 0
   vector<vector<double>> cys; // coefficient of y of each segment
   vector<vector<double>> czs; // coefficient of z of each segment
 
+  // 总时长与段数
   double time_sum;
   int num_seg;
 
@@ -29,17 +47,20 @@ public:
   {
   }
 
+  // 清空所有段，回到初始状态
   void reset()
   {
     times.clear(), cxs.clear(), cys.clear(), czs.clear();
     time_sum = 0.0, num_seg = 0;
   }
 
+  // 追加一段：给定 x/y/z 的系数和这一段的时长
   void addSegment(vector<double> cx, vector<double> cy, vector<double> cz, double t)
   {
     cxs.push_back(cx), cys.push_back(cy), czs.push_back(cz), times.push_back(t);
   }
 
+  // 初始化：统计总时长（必须在所有 addSegment 之后调用）
   void init()
   {
     num_seg = times.size();
@@ -73,6 +94,7 @@ public:
     return empty;
   }
 
+  // 【求值】算出 t 时刻的位置：先定位到哪一段，再做多项式求值
   Eigen::Vector3d evaluate(double t)
   {
     /* detetrmine segment num */
@@ -97,6 +119,7 @@ public:
     return pt;
   }
 
+  // 求 t 时刻的速度（对位置多项式求导，系数相应降一次）
   Eigen::Vector3d evaluateVel(double t)
   {
     /* detetrmine segment num */
@@ -128,6 +151,7 @@ public:
     return vel;
   }
 
+  // 求 t 时刻的加速度（再求一次导）
   Eigen::Vector3d evaluateAcc(double t)
   {
     /* detetrmine segment num */
@@ -160,6 +184,7 @@ public:
   }
 
   /* for evaluating traj, should be called in sequence!!! */
+  // 总时长；下面几个都是“采样统计量”（供评估轨迹质量用）
   double getTimeSum()
   {
     return this->time_sum;
@@ -178,6 +203,7 @@ public:
     return traj_vec3d;
   }
 
+  // 轨迹长度：把采样点连起来求折线长度
   double getLength()
   {
     length = 0.0;
@@ -192,11 +218,13 @@ public:
     return length;
   }
 
+  // 平均速度（注意：这个函数少了 return，返回值不可用，属于遗留小 bug）
   double getMeanVel()
   {
     double mean_vel = length / time_sum;
   }
 
+  // 加速度代价：衡量轨迹的平滑程度
   double getAccCost()
   {
     double cost = 0.0;
@@ -212,6 +240,7 @@ public:
     return cost;
   }
 
+  // 加加速度(jerk)代价：比加速度更严格的平滑度指标
   double getJerk()
   {
     double jerk = 0.0;
@@ -246,6 +275,7 @@ public:
     return jerk;
   }
 
+  // 采样统计平均速度与最大速度
   void getMeanAndMaxVel(double &mean_v, double &max_v)
   {
     int num = 0;
@@ -285,6 +315,7 @@ public:
     mean_v = mean_v / double(num);
   }
 
+  // 采样统计平均加速度与最大加速度
   void getMeanAndMaxAcc(double &mean_a, double &max_a)
   {
     int num = 0;
@@ -324,10 +355,12 @@ public:
     mean_a = mean_a / double(num);
   }
 
+  // 【静态工厂】经过多个途经点、且让四阶导(snap)总代价最小的多项式轨迹（详见 .cpp）
   static PolynomialTraj minSnapTraj(const Eigen::MatrixXd &Pos, const Eigen::Vector3d &start_vel,
                                     const Eigen::Vector3d &end_vel, const Eigen::Vector3d &start_acc,
                                     const Eigen::Vector3d &end_acc, const Eigen::VectorXd &Time);
 
+  // 【静态工厂】只有起点终点、单段五次多项式的轨迹
   static PolynomialTraj one_segment_traj_gen(const Eigen::Vector3d &start_pt, const Eigen::Vector3d &start_vel, const Eigen::Vector3d &start_acc,
                                              const Eigen::Vector3d &end_pt, const Eigen::Vector3d &end_vel, const Eigen::Vector3d &end_acc,
                                              double t);

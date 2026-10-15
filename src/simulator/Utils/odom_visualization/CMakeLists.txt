@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/Utils/odom_visualization/CMakeLists.txt —— 构建脚本
+#
+# 构建 odom_visualization：机器人位姿/轨迹可视化
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(odom_visualization)
 

@@ -10,10 +10,24 @@ FOV_Checker::~FOV_Checker(){
 
 }
 
+// ============================================================================
+// 【第三方代码，非本项目编写】快速视场检查的实现
+//
+// 【核心思路】
+//   把环境切成边长固定的体素方块。要判断“视野内有哪些点”时，
+//   不必逐点测试，只需逐方块判断“这个方块和视锥（圆锥）有没有交叠”，
+//   交叠的方块里的点才进一步检查 —— 这样能省掉大量计算。
+//
+// 【方块与圆锥相交怎么判】
+//   只要方块的 12 条棱里有任意一条与圆锥相交，就算可见。
+//   判断线段与圆锥相交用的是“线段两端点到圆锥轴线的夹角/距离”关系。
+// ============================================================================
+// 设置整个环境的边界
 void FOV_Checker::Set_Env(BoxPointType env_param){
     env = env_param;
 }
 
+// 设置体素方块的边长（决定检查的粒度）
 void FOV_Checker::Set_BoxLength(double box_len_param){
     box_length = box_len_param;
 }
@@ -29,6 +43,7 @@ void round_v3d(Eigen::Vector3d &vec, int decimal){
     return;
 }
 
+// 【主接口】遍历环境范围内的所有方块，挑出与视锥相交的，放进 boxes 返回
 void FOV_Checker::check_fov(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, double theta, double depth, vector<BoxPointType> &boxes){
     round_v3d(cur_pose,4);
     round_v3d(axis,3);
@@ -272,6 +287,7 @@ void FOV_Checker::check_fov(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, doub
     }
 }
 
+// 判断一个方块是否可见：先看整体范围，再逐条棱做线段-圆锥相交测试
 bool FOV_Checker::check_box(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, double theta, double depth, const BoxPointType box){
     Eigen::Vector3d vertex[8];
     bool s;
@@ -329,6 +345,7 @@ bool FOV_Checker::check_box(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, doub
     return s;
 }
 
+// 判断一个面片是否与视锥相交（拆成若干线段来做）
 bool FOV_Checker::check_surface(Eigen::Vector3d cur_pose, Eigen::Vector3d axis,  double theta, double depth, PlaneType plane){
     Eigen::Vector3d plane_p, plane_u, plane_v, plane_w, pc, p, vec;
     bool s;
@@ -358,6 +375,7 @@ bool FOV_Checker::check_surface(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, 
     return s;
 }
 
+// 【核心几何】判断一条线段是否与圆锥相交
 bool FOV_Checker::check_line(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, double theta, double depth, Eigen::Vector3d line_p, Eigen::Vector3d line_vec){
     Eigen::Vector3d p, vec_1, vec_2;
     double xl, yl, zl, xn, yn, zn, dot_1, dot_2, ln, pn, pl, l2, p2;
@@ -443,6 +461,7 @@ bool FOV_Checker::check_line(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, dou
     return false;
 }
 
+// 判断一个点是否落在视锥内（夹角小于半视场角、且距离不超射程）
 bool FOV_Checker::check_point(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, double theta, double depth, Eigen::Vector3d point){
     Eigen::Vector3d vec;
     double proj_len;
@@ -464,6 +483,7 @@ bool FOV_Checker::check_point(Eigen::Vector3d cur_pose, Eigen::Vector3d axis, do
     return s;
 }
 
+// 判断这个方块是否在环境范围内（超出就忽略）
 bool FOV_Checker::check_box_in_env(BoxPointType box){
     if (box.vertex_min[0] >= env.vertex_min[0]-eps_value && box.vertex_min[1] >= env.vertex_min[1]-eps_value && box.vertex_min[2] >= env.vertex_min[2]-eps_value && box.vertex_max[0]<= env.vertex_max[0]+eps_value && box.vertex_max[1]<= env.vertex_max[1]+eps_value && box.vertex_max[2]<= env.vertex_max[2]+eps_value){
         return true; 

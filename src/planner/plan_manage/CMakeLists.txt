@@ -1,4 +1,22 @@
+# ============================================================================
+# 文件：CMakeLists.txt —— 构建脚本（告诉编译器要编译出哪些程序）
+#
+# 【这个文件是干什么的】
+#   colcon build 时会读这个文件，决定：
+#     1. 需要依赖哪些其他包（find_package）
+#     2. 要生成哪些可执行程序（add_executable）
+#     3. 哪些文件要安装到 share 目录（install）
+#
+# 【本包会生成 5 个可执行程序】
+#   scan_planner_node     规划器主程序（最重要）
+#   closed_loop_controller 闭环控制器
+#   open_loop_controller   开环控制器
+#   go2_kinematic_sim      假机器人
+#   go2_gait_publisher     步态动画
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
+# 注意：包名叫 scan_planner，但目录名是 plan_manage（两者不一致是历史原因）。
+# 所有 launch / config 里引用包名时都用 scan_planner。
 project(scan_planner)
 
 if(NOT CMAKE_CXX_STANDARD)
@@ -37,6 +55,7 @@ target_include_directories(scan_planner_node PRIVATE include)
 ament_target_dependencies(scan_planner_node ${scan_planner_dependencies})
 target_link_libraries(scan_planner_node Eigen3::Eigen)
 
+# 下面用一个循环批量生成 4 个较小的可执行程序，它们的依赖是一样的。
 foreach(target open_loop_controller closed_loop_controller go2_kinematic_sim go2_gait_publisher)
   add_executable(${target} src/${target}.cpp)
   target_include_directories(${target} PRIVATE include)
@@ -46,6 +65,8 @@ foreach(target open_loop_controller closed_loop_controller go2_kinematic_sim go2
   target_link_libraries(${target} Eigen3::Eigen)
 endforeach()
 
+# 安装规则：可执行程序装到 lib/scan_planner，头文件装到 include，
+# launch/config 装到 share/scan_planner（运行时靠它找参数文件和启动脚本）。
 install(TARGETS
   scan_planner_node open_loop_controller closed_loop_controller
   go2_kinematic_sim go2_gait_publisher
@@ -56,6 +77,8 @@ install(FILES launch/default.rviz DESTINATION share/${PROJECT_NAME}/rviz OPTIONA
 install(PROGRAMS scripts/keypoint_recorder.py
   DESTINATION lib/${PROJECT_NAME} OPTIONAL)
 
+# 如果开启测试（colcon test），就注册两个“启动测试”。
+# 它们只检查程序能不能正常启动，不检查规划结果对不对。
 if(BUILD_TESTING)
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(test/test_planner_startup.py TIMEOUT 30)

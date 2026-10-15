@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/planner/traj_utils/CMakeLists.txt —— 构建脚本
+#
+# 构建库 libtraj_utils：多项式轨迹 + RViz 可视化，依赖 bspline_opt / Eigen / rclcpp
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(traj_utils)
 

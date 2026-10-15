@@ -1,3 +1,16 @@
+// ============================================================================
+// 文件：src/perlinnoise.cpp —— 柏林噪声（Perlin Noise）
+//
+// 【这是第三方代码】
+//   由 Ken Perlin 的官方 Java 参考实现直接翻译成 C++11（见文件开头的英文说明）。
+//   本项目只是拿它来给“地图类型 1”生成自然起伏的地形。
+//
+// 【柏林噪声是干什么的（一句话）】
+//   给定一个三维坐标，返回一个平滑连续的随机值（0~1）。
+//   相邻坐标的值很接近，所以用它渲染出来的地形像连绵的山丘，而不是随机噪点。
+//
+// 【阅读建议】知道用途即可；下面的实现细节属于经典算法，不必逐行研究。
+// ============================================================================
 #include "perlinnoise.hpp"
 
 #include <algorithm>
@@ -14,6 +27,7 @@
 // PRESENT IN THE ORIGINAL IMPLEMENTATION)
 
 // Initialize with the reference values for the permutation vector
+// 默认构造函数：直接采用官方参考实现里给出的那张“置换表”
 PerlinNoise::PerlinNoise()
 {
 
@@ -38,46 +52,55 @@ PerlinNoise::PerlinNoise()
         205, 93,  222, 114, 67,  29,  24,  72,  243, 141, 128, 195, 78,  66,
         215, 61,  156, 180 };
   // Duplicate the permutation vector
+  // 把 256 个数的表再复制一份接在后面（标准做法，避免索引越界）
   p.insert(p.end(), p.begin(), p.end());
 }
 
 // Generate a new permutation vector based on the value of seed
+// 带种子的构造函数：自己打乱生成置换表，这样每次生成的地图可复现
 PerlinNoise::PerlinNoise(unsigned int seed)
 {
   p.resize(256);
 
   // Fill p with values from 0 to 255
+  // 先填入 0,1,2,...,255
   std::iota(p.begin(), p.end(), 0);
 
   // Initialize a random engine with seed
   std::default_random_engine engine(seed);
 
   // Suffle  using the above random engine
+  // 用随机引擎把这些数打乱
   std::shuffle(p.begin(), p.end(), engine);
 
   // Duplicate the permutation vector
   p.insert(p.end(), p.begin(), p.end());
 }
 
+// 【核心】求某个点的噪声值，结果落在 [0,1] 之间
 double
 PerlinNoise::noise(double x, double y, double z)
 {
   // Find the unit cube that contains the point
+  // 找出该点所在的“单位立方体”坐标（&255 把下标限制在置换表范围内）
   int X = (int)floor(x) & 255;
   int Y = (int)floor(y) & 255;
   int Z = (int)floor(z) & 255;
 
   // Find relative x, y,z of point in cube
+  // 算出点在立方体内部的相对坐标（0~1）
   x -= floor(x);
   y -= floor(y);
   z -= floor(z);
 
   // Compute fade curves for each of x, y, z
+  // 用平滑曲线处理三个相对坐标，避免噪声出现方块的棱角
   double u = fade(x);
   double v = fade(y);
   double w = fade(z);
 
   // Hash coordinates of the 8 cube corners
+  // 算出立方体 8 个顶点的哈希值
   int A  = p[X] + Y;
   int AA = p[A] + Z;
   int AB = p[A + 1] + Z;
@@ -86,6 +109,7 @@ PerlinNoise::noise(double x, double y, double z)
   int BB = p[B + 1] + Z;
 
   // Add blended results from 8 corners of cube
+  // 把 8 个顶点的梯度影响按三线性插值混合起来
   double res =
     lerp(w,      //
          lerp(v, //
@@ -98,26 +122,32 @@ PerlinNoise::noise(double x, double y, double z)
               lerp(u, //
                    grad(p[AB + 1], x, y - 1, z - 1),
                    grad(p[BB + 1], x - 1, y - 1, z - 1))));
+  // 把结果从 [-1,1] 映射到 [0,1]
   return (res + 1.0) / 2.0;
 }
 
 double
 PerlinNoise::fade(double t)
 {
+  // 平滑曲线 6t⁵-15t⁴+10t³：保证在两端的一阶、二阶导都连续
   return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
 double
 PerlinNoise::lerp(double t, double a, double b)
 {
+  // 线性插值
   return a + t * (b - a);
 }
 
 double
 PerlinNoise::grad(int hash, double x, double y, double z)
 {
+  // 取哈希值的低 4 位，对应 12 个固定梯度方向
   int h = hash & 15;
   // Convert lower 4 bits of hash into 12 gradient directions
+  // 按哈希值挑选这个顶点的梯度方向
   double u = h < 8 ? x : y, v = h < 4 ? y : h == 12 || h == 14 ? x : z;
+  // 算出该顶点对当前点的影响（梯度与位移的点积）
   return ((h & 1) == 0 ? u : -u) + ((h & 2) == 0 ? v : -v);
 }

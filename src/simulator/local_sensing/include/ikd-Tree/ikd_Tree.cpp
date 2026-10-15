@@ -24,24 +24,41 @@ KD_TREE::~KD_TREE()
     Rebuild_Logger.clear();           
 }
 
+// ============================================================================
+// 【第三方代码，非本项目编写】ikd-Tree 的实现
+//
+// 【这个文件的整体结构】
+//   前半部分：对外接口（建树、增删点、最近邻搜索）、以及后台重建线程；
+//   后半部分：树的内部操作（递归建树、惰性删除、延迟标记下推、统计量更新）。
+//
+// 【两个关键设计（看代码时如果不懂，记住这两点即可）】
+//   1) 惰性删除：删点时不立刻从树上摘掉，只打一个 deleted 标记，
+//      等树“太不平衡”或“删除率太高”时再统一重建；
+//   2) 多线程重建：重建在后台线程做，搜索和插入基本不受影响。
+// ============================================================================
+// 设置“删除率”阈值：超过它就触发重建（用于保持树的高效）
 void KD_TREE::Set_delete_criterion_param(float delete_param){
     delete_criterion_param = delete_param;
 }
 
+// 设置“平衡度”阈值：树太歪也触发重建
 void KD_TREE::Set_balance_criterion_param(float balance_param){
     balance_criterion_param = balance_param;
 }
 
+// 设置体素降采样的格子边长
 void KD_TREE::set_downsample_param(float downsample_param){
     downsample_size = downsample_param;
 }
 
+// 初始化：暂存参数、启动后台重建线程
 void KD_TREE::InitializeKDTree(float delete_param, float balance_param, float box_length){
     Set_delete_criterion_param(delete_param);
     Set_balance_criterion_param(balance_param);
     set_downsample_param(box_length);
 }
 
+// 初始化一个节点：复位所有字段、创建互斥锁
 void KD_TREE::InitTreeNode(KD_TREE_NODE * root){
     root->point.x = 0.0f;
     root->point.y = 0.0f;
@@ -70,6 +87,7 @@ void KD_TREE::InitTreeNode(KD_TREE_NODE * root){
     pthread_mutex_init(&(root->push_down_mutex_lock),NULL);
 }   
 
+// 【查询】树的总节点数
 int KD_TREE::size(){
     int s = 0;
     if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node){
@@ -89,6 +107,7 @@ int KD_TREE::size(){
     }
 }
 
+// 整棵树覆盖的包围盒
 BoxPointType KD_TREE::tree_range(){
     BoxPointType range;
     if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node){
@@ -118,6 +137,7 @@ BoxPointType KD_TREE::tree_range(){
     return range;
 }
 
+// 有效点数（扣掉被标记删除的）
 int KD_TREE::validnum(){
     int s = 0;
     if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node){
@@ -136,6 +156,7 @@ int KD_TREE::validnum(){
     }
 }
 
+// 取根节点的平衡度与删除率（判断是否需要重建的依据）
 void KD_TREE::root_alpha(float &alpha_bal, float &alpha_del){
     if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node){
         alpha_bal = Root_Node->alpha_bal;
@@ -155,6 +176,7 @@ void KD_TREE::root_alpha(float &alpha_bal, float &alpha_del){
     }    
 }
 
+// 启动 / 停止后台重建线程
 void KD_TREE::start_thread(){
     pthread_mutex_init(&termination_flag_mutex_lock, NULL);   
     pthread_mutex_init(&rebuild_ptr_mutex_lock, NULL);     
@@ -179,11 +201,13 @@ void KD_TREE::stop_thread(){
     pthread_mutex_destroy(&search_flag_mutex);     
 }
 
+// 后台线程的入口函数
 void * KD_TREE::multi_thread_ptr(void * arg){
     KD_TREE * handle = (KD_TREE*) arg;
     handle->multi_thread_rebuild();
 }    
 
+// 【多线程重建】在后台把树重建得更平衡，尽量不阻塞主线程的搜索
 void KD_TREE::multi_thread_rebuild(){
     bool terminated = false;
     KD_TREE_NODE * father_ptr, ** new_node_ptr;
@@ -300,6 +324,7 @@ void KD_TREE::multi_thread_rebuild(){
     printf("Rebuild thread terminated normally\n");    
 }
 
+// 把一条操作日志“回放”到新树上（重建期间发生的增删不能丢）
 void KD_TREE::run_operation(KD_TREE_NODE ** root, Operation_Logger_Type operation){
     switch (operation.op)
     {
@@ -334,6 +359,7 @@ void KD_TREE::run_operation(KD_TREE_NODE ** root, Operation_Logger_Type operatio
     }
 }
 
+// 【建树】用一批点从头构建整棵树
 void KD_TREE::Build(PointVector point_cloud){
     if (Root_Node != nullptr){
         delete_tree_nodes(&Root_Node);
@@ -347,6 +373,7 @@ void KD_TREE::Build(PointVector point_cloud){
     Root_Node = STATIC_ROOT_NODE->left_son_ptr;    
 }
 
+// 【查询】k 近邻搜索：返回最近的 k 个点和对应距离
 void KD_TREE::Nearest_Search(PointType point, int k_nearest, PointVector& Nearest_Points, vector<float> & Point_Distance, double max_dist){   
     MANUAL_HEAP q(2*k_nearest);
     q.clear();
@@ -379,6 +406,7 @@ void KD_TREE::Nearest_Search(PointType point, int k_nearest, PointVector& Neares
     return;
 }
 
+// 【增量】批量加点（可选同时把过密的点降采样掉）
 int KD_TREE::Add_Points(PointVector & PointToAdd, bool downsample_on){
     int NewPointSize = PointToAdd.size();
     int tree_size = size();
@@ -456,6 +484,7 @@ int KD_TREE::Add_Points(PointVector & PointToAdd, bool downsample_on){
     return tmp_counter;
 }
 
+// 【增量】把若干区域内的点重新加回来
 void KD_TREE::Add_Point_Boxes(vector<BoxPointType> & BoxPoints){     
     for (int i=0;i < BoxPoints.size();i++){
         if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node){
@@ -477,6 +506,7 @@ void KD_TREE::Add_Point_Boxes(vector<BoxPointType> & BoxPoints){
     return;
 }
 
+// 【增量】删除一些点（惰性删除：只打标记）
 void KD_TREE::Delete_Points(PointVector & PointToDel){        
     for (int i=0;i<PointToDel.size();i++){
         if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node){               
@@ -498,6 +528,7 @@ void KD_TREE::Delete_Points(PointVector & PointToDel){
     return;
 }
 
+// 【增量】删除若干区域内的所有点
 int KD_TREE::Delete_Point_Boxes(vector<BoxPointType> & BoxPoints){
     int tmp_counter = 0;
     for (int i=0;i < BoxPoints.size();i++){ 
@@ -520,6 +551,7 @@ int KD_TREE::Delete_Point_Boxes(vector<BoxPointType> & BoxPoints){
     return tmp_counter;
 }
 
+// 取回所有被删除的点（供外部重新利用）
 void KD_TREE::acquire_removed_points(PointVector & removed_points){
     pthread_mutex_lock(&points_deleted_rebuild_mutex_lock); 
     for (int i = 0; i < Points_deleted.size();i++){
@@ -534,6 +566,7 @@ void KD_TREE::acquire_removed_points(PointVector & removed_points){
     return;
 }
 
+// 递归建树：每一层选“分布最分散的那个轴”来划分
 void KD_TREE::BuildTree(KD_TREE_NODE ** root, int l, int r, PointVector & Storage){
     if (l>r) return;
     *root = new KD_TREE_NODE;
@@ -601,6 +634,7 @@ void KD_TREE::BuildTree(KD_TREE_NODE ** root, int l, int r, PointVector & Storag
     return;
 }
 
+// 重建一棵子树（重新选轴、重新平衡）
 void KD_TREE::Rebuild(KD_TREE_NODE ** root){    
     KD_TREE_NODE * father_ptr;
     if ((*root)->TreeSize >= Multi_Thread_Rebuild_Point_Num) { 
@@ -623,6 +657,7 @@ void KD_TREE::Rebuild(KD_TREE_NODE ** root){
     return;
 }
 
+// 按“区域”惰性删除；若删除比例过高就自动触发重建
 int KD_TREE::Delete_by_range(KD_TREE_NODE ** root,  BoxPointType boxpoint, bool allow_rebuild, bool is_downsample){   
     if ((*root) == nullptr || (*root)->tree_deleted) return 0;
     (*root)->working_flag = true;
@@ -687,6 +722,7 @@ int KD_TREE::Delete_by_range(KD_TREE_NODE ** root,  BoxPointType boxpoint, bool 
     return tmp_counter;
 }
 
+// 按“单个点”惰性删除
 void KD_TREE::Delete_by_point(KD_TREE_NODE ** root, PointType point, bool allow_rebuild){   
     if ((*root) == nullptr || (*root)->tree_deleted) return;
     (*root)->working_flag = true;
@@ -736,6 +772,7 @@ void KD_TREE::Delete_by_point(KD_TREE_NODE ** root, PointType point, bool allow_
     return;
 }
 
+// 把一个区域内的点重新插入树中
 void KD_TREE::Add_by_range(KD_TREE_NODE ** root, BoxPointType boxpoint, bool allow_rebuild){
     if ((*root) == nullptr) return;
     (*root)->working_flag = true;
@@ -790,6 +827,7 @@ void KD_TREE::Add_by_range(KD_TREE_NODE ** root, BoxPointType boxpoint, bool all
     return;
 }
 
+// 把单个点插入树中（按层级轮流换轴）
 void KD_TREE::Add_by_point(KD_TREE_NODE ** root, PointType point, bool allow_rebuild, int father_axis){     
     if (*root == nullptr){
         *root = new KD_TREE_NODE;
@@ -840,6 +878,7 @@ void KD_TREE::Add_by_point(KD_TREE_NODE ** root, PointType point, bool allow_reb
     return;
 }
 
+// 递归的最近邻搜索：一边深入一边把候选点塞进最小堆，用包围盒距离剪枝
 void KD_TREE::Search(KD_TREE_NODE * root, int k_nearest, PointType point, MANUAL_HEAP &q, double max_dist){
     if (root == nullptr || root->tree_deleted) return;   
     double cur_dist = calc_box_dist(root, point);
@@ -985,6 +1024,7 @@ void KD_TREE::Search(KD_TREE_NODE * root, int k_nearest, PointType point, MANUAL
     return;
 }
 
+// 区域查询：把落在盒子里的点收集出来
 void KD_TREE::Search_by_range(KD_TREE_NODE *root, BoxPointType boxpoint, PointVector & Storage){
     if (root == nullptr) return;
     Push_Down(root);       
@@ -1015,6 +1055,7 @@ void KD_TREE::Search_by_range(KD_TREE_NODE *root, BoxPointType boxpoint, PointVe
     return;    
 }
 
+// 检查这个节点是否满足“需要重建”的条件（平衡度/删除率）
 bool KD_TREE::Criterion_Check(KD_TREE_NODE * root){
     if (root->TreeSize <= Minimal_Unbalanced_Tree_Size){
         return false;
@@ -1034,6 +1075,7 @@ bool KD_TREE::Criterion_Check(KD_TREE_NODE * root){
     return false;
 }
 
+// 【延迟标记下推】把父节点的删除标记批量传给子节点，避免每次都要遍历整棵子树
 void KD_TREE::Push_Down(KD_TREE_NODE *root){
     if (root == nullptr) return;
     Operation_Logger_Type operation;
@@ -1107,6 +1149,7 @@ void KD_TREE::Push_Down(KD_TREE_NODE *root){
     return;
 }
 
+// 向上更新每个节点的统计量（子树大小、包围盒、删除率、平衡度）
 void KD_TREE::Update(KD_TREE_NODE * root){
     KD_TREE_NODE * left_son_ptr = root->left_son_ptr;
     KD_TREE_NODE * right_son_ptr = root->right_son_ptr;
@@ -1244,6 +1287,7 @@ void KD_TREE::Update(KD_TREE_NODE * root){
     return;
 }
 
+// 把树摊平成点列表（可选是否包含已删除的点）
 void KD_TREE::flatten(KD_TREE_NODE * root, PointVector &Storage, delete_point_storage_set storage_type){
     if (root == nullptr) return;
     Push_Down(root);
@@ -1272,6 +1316,7 @@ void KD_TREE::flatten(KD_TREE_NODE * root, PointVector &Storage, delete_point_st
     return;
 }
 
+// 递归释放所有节点（析构时调用）
 void KD_TREE::delete_tree_nodes(KD_TREE_NODE ** root){ 
     if (*root == nullptr) return;
     Push_Down(*root);    
@@ -1284,6 +1329,7 @@ void KD_TREE::delete_tree_nodes(KD_TREE_NODE ** root){
     return;
 }
 
+// 小工具：判断两个点是否相同、两点距离、点到包围盒的距离
 bool KD_TREE::same_point(PointType a, PointType b){
     return (fabs(a.x-b.x) < EPSS && fabs(a.y-b.y) < EPSS && fabs(a.z-b.z) < EPSS );
 }
@@ -1306,10 +1352,12 @@ float KD_TREE::calc_box_dist(KD_TREE_NODE * node, PointType point){
     return min_dist;
 }
 
+// 按各轴排序用的比较函数（建树时挑轴排序）
 bool KD_TREE::point_cmp_x(PointType a, PointType b) { return a.x < b.x;}
 bool KD_TREE::point_cmp_y(PointType a, PointType b) { return a.y < b.y;}
 bool KD_TREE::point_cmp_z(PointType a, PointType b) { return a.z < b.z;}
 
+// 把树结构打印到文件（调试 / 论文绘图用）
 void KD_TREE::print_tree(int index, FILE *fp, float x_min, float x_max, float y_min, float y_max, float z_min, float z_max){
     pthread_mutex_lock(&working_flag_mutex);
     print_treenode(Root_Node, index, fp, x_min,x_max,y_min,y_max,z_min,z_max);

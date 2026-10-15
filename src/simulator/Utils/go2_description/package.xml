@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：src/simulator/Utils/go2_description/package.xml
+
+  包 go2_description：Go2 的 Xacro 模型、RViz 配置与 Gazebo Fortress 集成
+============================================================================ -->
 <package format="3">
   <name>go2_description</name>
   <version>2.0.0</version>

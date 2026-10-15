@@ -1,11 +1,24 @@
 <?xml version="1.0"?>
 
+<!-- ============================================================================
+文件：xacro/const.xacro —— Go2 的全部尺寸、限位与质量参数
+
+【这个文件是干什么的】
+集中存放机器人模型用到的所有数值（一张“常量表”），
+例如躯干长宽高、大腿/小腿长度、关节角度限位、各部件的质量与惯量。
+其它 xacro 文件用 ${名字} 引用这里的值。
+
+【阅读建议】参数表本身没有逻辑，知道下面四组分别是什么即可：
+几何尺寸 / 运动学尺寸 / 关节限位 / 质量惯量。
+============================================================================ -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+    <!-- 圆周率，以及一些“几乎为零的质量”（用于转子等纯外观部件） -->
     <!-- Constants for robot dimensions -->
     <xacro:property name="PI" value="3.1415926535897931"/>
     <xacro:property name="stick_mass" value="0.00001"/>
 
+    <!-- 【几何尺寸】躯干的简化碰撞体、髋/大腿/小腿/脚的半径与长宽 -->
     <!-- simplified collision value -->
     <xacro:property name="trunk_width" value="0.0935"/> 
     <xacro:property name="trunk_length" value="0.3762"/>
@@ -22,17 +35,20 @@
     <xacro:property name="stick_radius" value="0.01"/>
     <xacro:property name="stick_length" value="0.2"/>
 
+    <!-- 【运动学尺寸】大腿偏移、大腿长、小腿长（决定腿的连杆结构） -->
     <!-- kinematic value -->
     <xacro:property name="thigh_offset" value="0.0955"/>
     <xacro:property name="thigh_length" value="0.213"/>
     <xacro:property name="calf_length" value="0.213"/>
 
+    <!-- 四条腿相对躯干中心的位置偏移 -->
     <!-- leg offset from trunk center value -->
     <xacro:property name="leg_offset_x" value="0.1934"/>
     <xacro:property name="leg_offset_y" value="0.0465"/>
     <!-- <xacro:property name="trunk_offset_z" value="0.01675"/> -->
     <xacro:property name="hip_offset" value="0.0955"/>
 
+    <!-- 各刚体相对关节的安装偏移（以左前腿为例，其它腿由镜像参数推导） -->
     <!-- offset of link locations (left front) -->
     <xacro:property name="hip_offset_x" value="0.1934"/>
     <xacro:property name="hip_offset_y" value="0.0465"/>
@@ -55,6 +71,7 @@
     <xacro:property name="calf_rotor_offset_y" value="-0.03235"/>
     <xacro:property name="calf_rotor_offset_z" value="0.0"/>
 
+    <!-- 【关节限位】髋/大腿/小腿的角度上下限、力矩与速度上限 -->
     <!-- joint limits -->
     <xacro:property name="damping" value="0.0"/>
     <xacro:property name="friction" value="0.0"/>
@@ -71,7 +88,9 @@
     <xacro:property name="calf_velocity_max" value="20.06"/>
     <xacro:property name="calf_torque_max" value="35.55"/>
 
+    <!-- 【动力学参数】各部件的质量与惯量矩阵 -->
     <!-- dynamics inertial value -->
+    <!-- 躯干的质量与惯量 -->
     <!-- trunk -->
     <xacro:property name="trunk_mass" value="6.921"/>
     <xacro:property name="trunk_com_x" value="0.021112"/>
@@ -84,6 +103,7 @@
     <xacro:property name="trunk_iyz" value="-3.12E-05"/>
     <xacro:property name="trunk_izz" value="0.107"/>
 
+    <!-- 髋部的质量与惯量 -->
     <!-- hip (left front) -->
     <xacro:property name="hip_mass" value="0.678"/>
     <xacro:property name="hip_com_x" value="-0.0054"/>
@@ -107,6 +127,7 @@
     <xacro:property name="hip_rotor_iyz" value="0.0"/>
     <xacro:property name="hip_rotor_izz" value="0.000059647"/>
 
+    <!-- 大腿的质量与惯量 -->
     <!-- thigh -->
     <xacro:property name="thigh_mass" value="1.152"/>
     <xacro:property name="thigh_com_x" value="-0.00374"/>
@@ -130,6 +151,7 @@
     <xacro:property name="thigh_rotor_iyz" value="0.0"/>
     <xacro:property name="thigh_rotor_izz" value="0.000059647"/>
 
+    <!-- 小腿的质量与惯量 -->
     <!-- calf -->
     <xacro:property name="calf_mass" value="0.154"/>
     <xacro:property name="calf_com_x" value="0.00548"/>
@@ -153,6 +175,7 @@
     <xacro:property name="calf_rotor_iyz" value="0.0"/>
     <xacro:property name="calf_rotor_izz" value="0.000059647"/>
 
+    <!-- 脚的质量与惯量 -->
     <!-- foot -->
     <xacro:property name="foot_mass" value="0.06"/>
 

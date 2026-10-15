@@ -1,14 +1,24 @@
+# ============================================================================
+# 文件：go2_description/config/ros2_controllers.yaml
+#
+# 【这个文件是干什么的】
+#   配置 ros2_control 的控制器管理器：要加载哪些控制器、频率多少。
+# ============================================================================
+# 控制器管理器：以 200Hz 运行，使用仿真时钟
 controller_manager:
   ros__parameters:
     update_rate: 200
     use_sim_time: true
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
+    # 声明要加载两个控制器：关节状态广播器 + 关节轨迹控制器
     joint_trajectory_controller:
       type: joint_trajectory_controller/JointTrajectoryController
 
+# 轨迹控制器：接收“各关节目标位置”的轨迹并驱动关节跟踪
 joint_trajectory_controller:
   ros__parameters:
+    # 它管的 12 个关节（四条腿 × 髋/大腿/小腿）
     joints:
       - FL_hip_joint
       - FL_thigh_joint
@@ -22,6 +32,7 @@ joint_trajectory_controller:
       - RR_hip_joint
       - RR_thigh_joint
       - RR_calf_joint
+    # 只接受“位置”指令；状态反馈“位置 + 速度”
     command_interfaces:
       - position
     state_interfaces:
@@ -31,6 +42,7 @@ joint_trajectory_controller:
     action_monitor_rate: 20.0
     allow_partial_joints_goal: false
     open_loop_control: false
+    # 约束：停止时速度容差、以及到达目标的超时时间
     constraints:
       stopped_velocity_tolerance: 0.05
       goal_time: 1.0

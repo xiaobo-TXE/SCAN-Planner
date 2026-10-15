@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：src/simulator/map_generator/package.xml
+
+  包 map_generator：PCD 点云地图发布
+============================================================================ -->
 <package format="3">
   <name>map_generator</name>
   <version>0.1.0</version>

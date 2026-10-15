@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：src/simulator/Utils/odom_visualization/package.xml
+
+  包 odom_visualization：机器人位姿与轨迹可视化
+============================================================================ -->
 <package format="3">
   <name>odom_visualization</name>
   <version>0.1.0</version>

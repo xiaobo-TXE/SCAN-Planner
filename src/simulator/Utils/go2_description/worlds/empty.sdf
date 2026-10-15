@@ -1,6 +1,14 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+文件：worlds/empty.sdf —— Gazebo 的“空世界”
+
+【这个文件是干什么的】
+定义一个最简单的仿真世界：有重力、有阳光、有一块 100×100 米的地面，
+除此之外什么都没有（机器人由 launch 文件单独生成）。
+============================================================================ -->
 <sdf version="1.8">
   <world name="empty">
+    <!-- 四个基础插件：物理引擎、用户命令、场景广播、传感器渲染 -->
     <plugin filename="libignition-gazebo-physics-system.so"
             name="ignition::gazebo::systems::Physics"/>
     <plugin filename="libignition-gazebo-user-commands-system.so"
@@ -11,11 +19,13 @@
             name="ignition::gazebo::systems::Sensors">
       <render_engine>ogre2</render_engine>
     </plugin>
+    <!-- 重力加速度；物理步长 1 毫秒 -->
     <gravity>0 0 -9.81</gravity>
     <physics name="1ms" type="ignored">
       <max_step_size>0.001</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
+    <!-- 平行光（太阳），让模型有明暗效果 -->
     <light name="sun" type="directional">
       <cast_shadows>true</cast_shadows>
       <pose>0 0 10 0 0 0</pose>
@@ -23,6 +33,7 @@
       <specular>0.2 0.2 0.2 1</specular>
       <direction>-0.5 0.1 -0.9</direction>
     </light>
+    <!-- 一块静态地面：碰撞体和显示体都是 100×100 米的平面 -->
     <model name="ground_plane">
       <static>true</static>
       <link name="link">

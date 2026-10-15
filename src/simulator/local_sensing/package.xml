@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：src/simulator/local_sensing/package.xml
+
+  包 local_sensing_node：传感器仿真（CPU 与 GPU 两套渲染器）
+============================================================================ -->
 <package format="3">
   <name>local_sensing_node</name>
   <version>0.2.0</version>

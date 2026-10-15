@@ -1,32 +1,61 @@
+# ============================================================================
+# 文件：config/planner.yaml  —— 规划器 scan_planner_node 的参数文件
+#
+# 【这个文件是干什么的】
+#   程序启动时会把这里的参数读进去。改这里就能改规划行为，不用重新编译。
+#   参数名用点号分层，例如 fsm.navi_mode 就是 fsm 下面的 navi_mode。
+#
+# 【四大部分】
+#   fsm.*          状态机行为（怎么给目标、什么时候重规划）
+#   grid_map.*     地图与传感器（分辨率、机器人形状、障碍判定概率）
+#   manager.*      物理限制（最大速度/加速度、控制点间距）
+#   optimization.* 轨迹优化的权重（平滑、避障、可行性各占多少）
+# ============================================================================
 scan_planner_node:
   ros__parameters:
     use_sim_time: false
 
+    # 目标怎么来：1=RViz 点选目标, 2=预设航点, 3=订阅外部路径
+    # 注意：改成 2 时需要同时提供 fsm.waypoints（见 keypoints.example.yaml）。
     fsm.navi_mode: 1
+    # 当“轨迹起点”和“当前位置”相差超过这个距离(米)时，就重新规划
     fsm.thresh_replan: 1.0
+    # 离终点小于这个距离(米)就不用再重规划了，直接走完
     fsm.thresh_no_replan: 0.1
+    # 规划视野(米)：每次只规划前方这么远，取这个距离处的点作为局部目标
     fsm.planning_horizon: 7.5
+    # 若“撞上障碍”预计发生在这个时间(秒)之内，且来不及重规划，就紧急停止
     fsm.emergency_time: 1.0
+    # 是否允许紧急停止后自动恢复（速度降到很低时重新尝试规划）
     fsm.fail_safe: true
+    # 连续规划失败超过这个次数，就强制进入紧急停止
     fsm.max_replan_fail_count: 1000
 
+    # 地图分辨率(米/格)：越小越精细，但越占内存、越慢。0.05 = 每格 5 厘米
     grid_map.resolution: 0.05
+    # 局部地图的尺寸(米)：10 x 10 x 5 的一个“滑动盒子”，会跟着机器人一起移动
     grid_map.sliding_map_size_x: 10.0
     grid_map.sliding_map_size_y: 10.0
     grid_map.sliding_map_size_z: 5.0
     grid_map.local_update_range_x: 5.0
     grid_map.local_update_range_y: 5.0
     grid_map.local_update_range_z: 2.5
+    # 是否启用“滑动地图”（机器人移动时，地图盒子跟着挪，而不是重建整张地图）
     grid_map.map_sliding_en: true
     grid_map.map_sliding_thresh: 0.2
+    # 机器人被抽象成“前后两个圆柱”。这里是圆柱半径(米)。
+    # 障碍会被额外向外膨胀这么多，用来保证身体不撞。
     grid_map.double_cylinder_radius: 0.25
+    # 两个圆柱中心离机器人中心的距离(米)。所以圆柱中心分别在前后 0.18 米处。
     grid_map.double_cylinder_offset: 0.18
     grid_map.body_height: 0.4
+    # 膨胀在竖直方向的范围：向上 0.1 米、向下 0.4 米（下方的障碍更危险）
     grid_map.obstacles_inflation_z_up: 0.1
     grid_map.obstacles_inflation_z_down: 0.4
     grid_map.frame_id: world
     grid_map.sliding_map_frame_id: sliding_map
     grid_map.ground_height: 0.0
+    # 传感器类型：lidar(激光点云) 或 depth(深度相机)。会决定地图怎么更新。
     grid_map.sensor_type: lidar
     grid_map.cloud_is_world: true
     grid_map.need_extrinsic: false
@@ -41,27 +70,39 @@ scan_planner_node:
     grid_map.k_depth_scaling_factor: 1000.0
     grid_map.skip_pixel: 2
 
+    # 占据概率模型：光束打中某格的“命中概率”，没打中的是 p_miss。
+    # 每扫到一次就用这两个值去加减该格的概率，累加多个视角后判断是不是障碍。
     grid_map.p_hit: 0.85
     grid_map.p_miss: 0.30
     grid_map.p_min: 0.12
     grid_map.p_max: 0.98
     grid_map.p_occ: 0.80
+    # 一条光束算多远(米)。超过这个距离的点不参与建图。
     grid_map.max_ray_length: 5.0
     grid_map.vis_height: 0.3
     grid_map.show_occ_time: false
 
+    # 物理限制：最大速度(米/秒)。规划出的轨迹不允许超过它。
     manager.max_vel: 0.75
+    # 物理限制：最大加速度(米/秒²)
     manager.max_acc: 0.5
     manager.max_jerk: 4.0
+    # B 样条相邻控制点的间距(米)：越小轨迹越灵活，但计算量越大
     manager.control_points_distance: 0.2
     manager.feasibility_tolerance: 0.5
     manager.planning_horizon: 7.5
 
+    # 下面是“轨迹优化”的各项权重。权重越大，优化越倾向于满足那一项。
+    # lambda_smooth：平滑度（让轨迹不要抖）
     optimization.lambda_smooth: 1.0
+    # lambda_collision：避障（离障碍越远越好）
     optimization.lambda_collision: 1.0
+    # lambda_feasibility：动力学可行性（别超速/超加速度）
     optimization.lambda_feasibility: 0.1
     optimization.lambda_fitness: 1.0
+    # dist0：期望的安全距离(米)——离障碍至少留这么远才开始“不惩罚”
     optimization.dist0: 0.2
     optimization.max_vel: 0.75
     optimization.max_acc: 0.5
+    # order：B 样条的阶数。3 表示三次 B 样条（常用值，一般不用改）
     optimization.order: 3

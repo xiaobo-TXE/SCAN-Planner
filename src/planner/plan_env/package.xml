@@ -1,4 +1,11 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：plan_env/package.xml
+
+  这个包叫 plan_env，负责“局部栅格地图 + 射线投射”。
+  依赖偏“图像/点云处理”：PCL 相关、cv_bridge、message_filters（用于把
+  深度图和传感器位姿按时间对齐）、tf2、以及各种 ROS 消息类型。
+============================================================================ -->
 <package format="3">
   <name>plan_env</name>
   <version>0.1.0</version>
@@ -9,6 +16,7 @@
   <depend>cv_bridge</depend>
   <depend>eigen</depend>
   <depend>geometry_msgs</depend>
+  <!-- message_filters：把“深度图”和“传感器位姿”两路消息按时间戳配对 -->
   <depend>message_filters</depend>
   <depend>nav_msgs</depend>
   <depend>pcl_conversions</depend>

@@ -1,5 +1,19 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：package.xml —— 包的“身份证 + 依赖清单”
+
+  【这个文件是干什么的】
+    告诉 ROS 2 这个包叫什么、什么版本、用了哪些许可证，
+    以及“我依赖哪些别的包”。rosdep 安装依赖时会读它。
+
+  【三种依赖标签】
+    buildtool_depend  构建工具（这里是 ament_cmake）
+    depend            编译+运行时都需要的包
+    exec_depend       只有运行才需要的包（如各种启动脚本依赖）
+    test_depend       只有跑测试才需要的包
+============================================================================ -->
 <package format="3">
+  <!-- 包名：scan_planner（和目录名 plan_manage 不一致，属历史原因） -->
   <name>scan_planner</name>
   <version>0.1.0</version>
   <description>SCAN-Planner ROS 2 nodes, controllers, launch and configuration.</description>
@@ -16,6 +30,7 @@
   <depend>path_searching</depend>
   <depend>plan_env</depend>
   <depend>rclcpp</depend>
+  <!-- rclpy = Python 版 ROS 2 客户端库；keypoint_recorder.py 用它来订阅里程计 -->
   <depend>rclpy</depend>
   <depend>scan_planner_msgs</depend>
   <depend>sensor_msgs</depend>
@@ -29,6 +44,7 @@
   <exec_depend>go2_description</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <!-- 下面这一组都是仿真/显示相关的包，只有在仿真模式运行才需要 -->
   <exec_depend>local_sensing_node</exec_depend>
   <exec_depend>map_generator</exec_depend>
   <exec_depend>mockamap</exec_depend>

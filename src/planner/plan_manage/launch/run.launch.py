@@ -1,3 +1,21 @@
+# ============================================================================
+# 文件：launch/run.launch.py —— 最常用的启动入口
+#
+# 【怎么用】
+#   ros2 launch scan_planner run.launch.py is_real_world:=false navi_mode:=1 \
+#     sensor_type:=lidar controller_mode:=closed_loop use_gpu:=false
+#
+# 【这个文件做的事情】
+#   1. 根据 is_real_world 决定连“真机”还是“仿真”的话题
+#   2. 启动规划器 scan_planner_node
+#   3. 启动机器人模型显示 robot_state_publisher
+#   4. 启动控制器（开环或闭环），仿真时再加上假机器人和步态动画
+#   5. 仿真时顺便把 simulator.launch.py（造地图+传感器）也拉起来
+#
+# 【重要概念】remappings = 话题改名。
+#   规划器内部写的是 body_pose，但真机上真实话题叫 /LIO/odom_vehicle，
+#   这里就把两者“接”起来。仿真时则接到 /quad_0/body_pose。
+# ============================================================================
 """Main ROS 2 launch entry point for simulation and real-robot remapping."""
 
 import os
@@ -10,10 +28,13 @@ from launch.substitutions import Command, LaunchConfiguration
 from launch_ros.actions import Node
 
 
+# 把字符串形式的开关（如 "true"/"false"）转成 Python 的 True/False。
 def _as_bool(value):
     return value.lower() in ("1", "true", "yes", "on")
 
 
+# 真正干活的函数：在这里根据参数决定启动哪些节点、做哪些话题重映射。
+# 用 OpaqueFunction 包裹，是为了能在“运行时”拿到参数值再决定。
 def _setup(context):
     scan_share = get_package_share_directory("scan_planner")
     go2_share = get_package_share_directory("go2_description")
@@ -36,6 +57,9 @@ def _setup(context):
             "navi_mode=2 requires keypoints_file to reference a ROS 2 parameter YAML"
         )
 
+    # 下面这段是“二选一”：
+    #   if 分支 = 真机：话题接 LIO 里程计/激光、相机内参用真机标定值；
+    #   else 分支 = 仿真：话题接 /quad_0/*，点云已经是世界系、不需要外参。
     if is_real:
         body_pose = "/LIO/odom_vehicle"
         sensor_pose = "/LIO/odom_imu"
@@ -67,6 +91,8 @@ def _setup(context):
         "grid_map.cloud_is_world": cloud_is_world,
         "grid_map.need_extrinsic": need_extrinsic,
     }
+    # ---- 节点 1：规划器本体（最重要）----
+    # parameters 按顺序叠加：先 planner.yaml，再（可选）航点文件，最后覆盖项。
     actions = [
         Node(
             package="scan_planner",
@@ -87,6 +113,8 @@ def _setup(context):
     actions.append(
         Node(
             package="robot_state_publisher",
+    # ---- 节点 2：机器人模型显示 ----
+    # 用 xacro 生成 robot_description，让 RViz 能画出 Go2 的外形。
             executable="robot_state_publisher",
             name="go2_robot_state_publisher",
             output="screen",
@@ -106,6 +134,8 @@ def _setup(context):
         actions.append(
             Node(
                 package="scan_planner",
+    # ---- 控制器（方案 A）：开环 ----
+    # 直接把轨迹当成里程计，不做控制。适合单独看规划效果。
                 executable="open_loop_controller",
                 name="open_loop_controller",
                 output="screen",
@@ -120,6 +150,8 @@ def _setup(context):
         actions.append(
             Node(
                 package="scan_planner",
+    # ---- 控制器（方案 B）：闭环（默认）----
+    # 真正算速度指令 cmd_vel。真机发到 /cmd_vel，仿真发到 /quad_0/cmd_vel。
                 executable="closed_loop_controller",
                 name="closed_loop_controller",
                 output="screen",
@@ -134,6 +166,8 @@ def _setup(context):
             actions.append(
                 Node(
                     package="scan_planner",
+    # ---- 假机器人（仅仿真）----
+    # 接收 cmd_vel 算出位置，再发 body_pose，和控制器组成闭环。
                     executable="go2_kinematic_sim",
                     name="go2_kinematic_sim",
                     output="screen",
@@ -159,12 +193,16 @@ def _setup(context):
             [
                 Node(
                     package="scan_planner",
+    # ---- 步态动画（仅仿真）----
+    # 纯视觉效果：让 RViz 里的 Go2 腿动起来。
                     executable="go2_gait_publisher",
                     name="go2_gait_publisher",
                     output="screen",
                     parameters=[controllers_yaml, common],
                     remappings=[("body_pose", body_pose)],
                 ),
+    # ---- 拉起仿真环境 ----
+    # 包含 simulator.launch.py：造地图 + 模拟传感器 + 里程计可视化。
                 IncludeLaunchDescription(
                     PythonLaunchDescriptionSource(
                         os.path.join(scan_share, "launch", "simulator.launch.py")
@@ -189,6 +227,8 @@ def _setup(context):
     return actions
 
 
+# 声明所有可在命令行覆盖的参数（--ros-args 之外的 launch 参数），
+# 默认值与 README 里写的一致；最后用 OpaqueFunction 调用上面的 _setup。
 def generate_launch_description():
     return LaunchDescription(
         [

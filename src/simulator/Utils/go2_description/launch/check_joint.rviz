@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/Utils/go2_description/launch/check_joint.rviz
+#
+# 检查 Go2 关节用的 RViz2 显示配置。
+# ============================================================================
 Panels:
   - Class: rviz_common/Displays
     Name: Displays

@@ -1,4 +1,9 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：src/simulator/Utils/waypoint_generator/package.xml
+
+  包 waypoint_generator：目标点转路径的小工具
+============================================================================ -->
 <package format="3">
   <name>waypoint_generator</name>
   <version>0.1.0</version>

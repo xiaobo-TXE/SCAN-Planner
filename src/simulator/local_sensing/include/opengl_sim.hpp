@@ -1,3 +1,25 @@
+// ============================================================================
+// 文件：include/opengl_sim.hpp —— GPU 传感器渲染器的实现
+//
+// 【这个文件是干什么的】
+//   用一个“看不见的 OpenGL 窗口”把点云画出来，然后读回深度缓冲，
+//   把深度值还原成 3D 点 —— 这样就“拍”出了一帧激光/深度数据。
+//
+// 【为什么要用 GPU】
+//   CPU 版要自己逐点做射线遍历和遮挡判断；GPU 画点的时候，
+//   显卡的深度缓冲会自动保留每个像素最近的深度”，速度快很多。
+//
+// 【整体流程（对应 render_pointcloud）】
+//   1. 按激光型号生成“扫描图案”（哪些像素会被点亮）
+//   2. 设置相机（位置、朝向、视场、射程）
+//   3. 把点云画到窗口上（GPU 自动处理遮挡）
+//   4. 读回深度缓冲 → 线性化 → 还原成 3D 点云
+//   5. 用“面插值”把稀疏的洞补成连续表面
+//
+// 【阅读建议】
+//   重点看 render_pointcloud、read_depth、depth_to_pointcloud 三个函数；
+//   其余大量 OpenGL 初始化/调试函数可以略过。
+// ============================================================================
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/common/transforms.h>
@@ -50,6 +72,7 @@ using namespace std;
 using namespace cv;
 using PointType = pcl::PointXYZI;
 
+// GLFW 窗口尺寸变化时的回调（本项目用的是隐藏窗口，基本用不到）
 void framebuffer_size_callback(GLFWwindow* window, int screen_width, int screen_height)
 {
     // make sure the viewport matches the new window dimensions; note that width and 
@@ -57,24 +80,32 @@ void framebuffer_size_callback(GLFWwindow* window, int screen_width, int screen_
     glViewport(0, 0, screen_width, screen_height);
 }
 
+// 【核心类】GPU 渲染器：负责“画点 → 读深度 → 还原点云”整条流程
 class opengl_pointcloud_render
 {
     public:
     opengl_pointcloud_render(){};
+    // 从 PCD 文件加载全局地图（离线模式）
     void read_pointcloud_fromfile(std::string map_filename);
+    // 从 ROS 点云消息加载全局地图（在线订阅模式）
     void read_pointcloud_fromcloud(const pcl::PointCloud<PointType>& input_cloud);
     ~opengl_pointcloud_render();
+    // 设置渲染参数：图像尺寸、焦距、下采样分辨率、视场、射程、扫描图案
     void setParameters(int width, int height, float fx, float fy, float downsample_res, float polar_res_, float yaw_fov_,\
                  float vertical_fov_,float near,float far,int sensing_rate,int use_avia_pattern, int use_os128_pattern, int use_minicf_pattern);
+    // 设置着色器（shader）文件所在的目录
     void setShaderDirectory(const std::string &directory)
     {
         shader_directory_ = directory;
         if (!shader_directory_.empty() && shader_directory_.back() != '/') shader_directory_ += '/';
     }
+    // 【核心】渲染一帧 → 输出点云
     void render_pointcloud(pcl::PointCloud<PointType>::Ptr output_pointcloud, Eigen::Vector3f camera_pos, Eigen::Quaternionf camera_q, double t_pattern_start);
+    // 输入动态物体（其它无人机 / 动态障碍）的点云
     void input_dyn_clouds(pcl::PointCloud<pcl::PointXYZI> input_cloud);
 
     private:
+    // ---------- 下面是渲染器的内部状态 ----------
     int UI_WIDTH;
     int width = 350;
     int height = 350;
@@ -86,8 +117,10 @@ class opengl_pointcloud_render
     float fv = 350;
     float u0 = width*0.5;
     float v0 = width*0.5;
+    // OpenGL 的矩阵与缓冲对象（VBO/VAO/EBO 是 GL 的固定套路）
     glm::mat4 projection, view;
     unsigned int VBO, VAO, EBO;
+    // 隐藏窗口的句柄（渲染在这个窗口里进行，但不会显示出来）
     GLFWwindow* window;
     Shader ourShader;
     std::string shader_directory_;
@@ -96,10 +129,12 @@ class opengl_pointcloud_render
     int use_os128_pattern = 0;
     int use_minicf_pattern = 0;
     int sensing_rate = 10;
+    // 激光扫描图案矩阵：标记哪些像素会被点亮
     Eigen::MatrixXf pattern_matrix;
     Eigen::MatrixXf density_matrix;
     cv::Mat density_mat;
 
+    // 哈希体素：把地图点按大方块分组，减少每帧要画得点数
     double hash_cubesize = 5.0;
     FOV_Checker fov_checker;
     BoxPointType env_box;
@@ -116,11 +151,13 @@ class opengl_pointcloud_render
     Eigen::Vector3f camera;
     Eigen::Vector3f camera_pos_world;
     std::vector<std::vector<Eigen::Matrix<float, 3, 1> > > interline_ptcloud_vec;
+    // 每个点的法线（面插值要用）
     pcl::PointCloud<pcl::Normal>::Ptr pointcloud_normals = pcl::PointCloud<pcl::Normal>::Ptr(new pcl::PointCloud<pcl::Normal>);
 
     pcl::PolygonMesh             mesh, mesh_obj;
     pcl::PointCloud< PointType > cloud_color_mesh;
     pcl::PointCloud< PointType >::Ptr pcl_pc_rgb;
+    // render_cloud：一次渲染的最终结果
     pcl::PointCloud< PointType >::Ptr render_cloud = pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>);
     std::vector<Eigen::Matrix<float, 3, 1> > depth_ptcloud_vec;
     std::vector<float>          g_pointcloud_vec;
@@ -128,6 +165,7 @@ class opengl_pointcloud_render
     int g_point_step = 3;
     std::vector<Eigen::Matrix<float, 3, 1> > g_eigen_pt_vec, dyn_clouds_vec;
     std::vector<Eigen::Matrix<float, 3, 1>> g_eigen_rgb_vec;
+    // GPU 顶点缓冲用的各种中间数据
     std::vector<Eigen::Matrix<float, 3, 1> > g_eigen_tri_pt_vec;
     std::vector<Eigen::Matrix<unsigned char, 3, 1>> g_eigen_tri_rgb_vec;
     std::vector<unsigned int> points_index_infov, dyn_clouds_index;
@@ -139,6 +177,7 @@ class opengl_pointcloud_render
     // pangolin::View d_cam (1.0);
     // pangolin::View d_cam2 (1.0);
 
+    // 颜色结构体与转换函数（调试可视化用）
     struct BGR
     {
         uchar b;
@@ -153,6 +192,7 @@ class opengl_pointcloud_render
         double v;
     };
 
+    // ---------- 下面这些是内部辅助函数（详见各自的实现） ----------
     float LinearizeDepth(float depth,float near, float far);
     float regainrealdepth(float depth,float near, float far);
     void test_vector_insert();
@@ -187,6 +227,7 @@ class opengl_pointcloud_render
 
 };
 
+// 保存渲染参数；图像宽高决定极坐标栅格的像素数
 void opengl_pointcloud_render::setParameters(int width, int height, float fx, float fy, float downsample_res, float polar_res_, float yaw_fov_, float vertical_fov_,\
                                     float near,float far,int sensing_rate,int use_avia_pattern, int use_os128_pattern, int use_minicf_pattern)
 {
@@ -229,6 +270,7 @@ void opengl_pointcloud_render::setParameters(int width, int height, float fx, fl
     
 }
 
+// 把动态物体的点存起来，并记录它们的索引（供碰撞检测使用）
 void opengl_pointcloud_render::input_dyn_clouds(pcl::PointCloud<pcl::PointXYZI> input_cloud)
 {
     this->dyn_clouds = input_cloud;
@@ -277,6 +319,7 @@ void opengl_pointcloud_render::input_dyn_clouds(pcl::PointCloud<pcl::PointXYZI> 
 //     glViewport(0, 0, screen_width, screen_height);
 // }
 
+// 读 PCD 文件 → 估算法线 → 建立哈希体素 → 上传到 GPU（离线模式入口）
 void opengl_pointcloud_render::read_pointcloud_fromfile(std::string map_filename){
 
     // glfw: initialize and configure
@@ -445,6 +488,7 @@ void opengl_pointcloud_render::read_pointcloud_fromfile(std::string map_filename
     ourShader.use();
 }
 
+// 同上，但输入是 ROS 点云消息（在线订阅模式入口）
 void opengl_pointcloud_render::read_pointcloud_fromcloud(const pcl::PointCloud<PointType>& input_cloud){
 
     // glfw: initialize and configure
@@ -529,6 +573,7 @@ opengl_pointcloud_render::~opengl_pointcloud_render(){
     glfwTerminate();
 }
 
+// 【核心】一帧渲染的完整流程（下面分段说明）
 void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr output_pointcloud, Eigen::Vector3f camera_pos, \
                     Eigen::Quaternionf camera_q, double t_pattern_start)
 {        
@@ -550,6 +595,7 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
    
 
         //avia pattern
+        // 按激光型号生成扫描图案：标记哪些像素会被点亮
         if(use_avia_pattern == 1)
         {
             pattern_matrix.setConstant(0);
@@ -619,6 +665,7 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
             }
             }
         }
+        // 本项目默认使用的图案（大疆 Mid-360 那种非重复扫描）
         else if(use_minicf_pattern == 1)
         {
             pattern_matrix.setConstant(0);
@@ -660,6 +707,7 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
         }
 
         //trans odom to matrix
+        // 把机器人位姿转成 OpenGL 的相机参数：相机位置、前方(cameraFront)、上方(cameraUp)
         Eigen::Matrix3f body2world_matrix = camera_q.toRotationMatrix();
         body2world = body2world_matrix;
         glm::vec3 cameraPos = glm::vec3(camera_pos(0), camera_pos(1), camera_pos(2));
@@ -680,21 +728,26 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
 
         // render
         // ------
+        // 清空上一帧的颜色缓冲和深度缓冲
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT); 
 
         // activate shader
+        // 启用着色器，并把下面这些参数一次性传给 GPU
         ourShader.use();
 
         // pass projection matrix to shader (note that in this case it could change every frame)
+        // 投影矩阵：由焦距和图像尺寸决定（相当于相机的“视锥”）
         projection = glm::perspective((float)atan(((float)width)/(2*fv))*2, (float)width / (float)height, near, far);
         ourShader.setMat4("projection", projection);
 
         // camera/view transformation
         // view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);//original linear project
+        // 视图矩阵：相机从 cameraPos 看向 cameraFront 方向
         view = glm::lookAt(cameraPos, cameraPos + cameraFront, cameraUp);
         ourShader.setMat4("view", view);
 
+        // 把射程、视场、分辨率、朝向、位置都传给着色器
         glm::vec2 sensing_range = glm::vec2(near,far);
         ourShader.setVec2("range", sensing_range);
 
@@ -704,6 +757,7 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
         glm::vec2 res = glm::vec2(downsample_res,polar_res);
         ourShader.setVec2("res",res);
 
+        // “世界→机体”的旋转矩阵，供着色器判断点是否落在视场内
         glm::mat3 rotation_mat;
         Eigen::Matrix3f world2body = body2world_matrix.transpose();//
 
@@ -787,6 +841,7 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
         // std::cout << "points index infov size = " << points_index_infov.size() <<std::endl;
 
         // render boxes
+        // 开始绘制：只画“在视场内”的那些点（显卡会自动做遮挡判断）
         glBindVertexArray(VAO);  
 
         system_clock::time_point t1 = system_clock::now();
@@ -798,8 +853,10 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
         // glColor3f(1.0f,0.0f,0.0f);
         // glDrawArrays(GL_POINTS, 0, g_eigen_pt_vec.size()/2);
         // glDrawElements(GL_POINTS, g_eigen_pt_vec.size()/2, GL_UNSIGNED_INT, 0);
+        // 真正把点画上去；深度缓冲会记下每个像素最近的距离
         glDrawElements(GL_POINTS, points_index_infov.size(), GL_UNSIGNED_INT, 0);
 
+        // 交换缓冲，让这一帧生效
         glfwSwapBuffers(window);
         glfwPollEvents();
 
@@ -808,9 +865,12 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
         // duration<double> second2(dur2);
         // std::cout << "One draw frame cost " << second2.count() << " seconds" << std::endl;
 
+        // 读回深度缓冲，并把深度值还原成 3D 点云
         depth_ptcloud_vec.clear();
+        // 读 16 位精度的深度图，内部会做面插值等后处理
         read_depth(16,depth_ptcloud_vec);
 
+        // 把最终结果拷贝给调用者
         pcl::copyPointCloud(*render_cloud,*output_pointcloud);
         system_clock::time_point t2 = system_clock::now();
         auto dur = t2 - t1;
@@ -819,6 +879,7 @@ void opengl_pointcloud_render::render_pointcloud(pcl::PointCloud<PointType>::Ptr
 }
 
 //preprocess pointcloud data
+// 预处理点云：估计每个点的法线（后面“面插值”要靠它）
 void opengl_pointcloud_render::preprocess(pcl::PointCloud< PointType > cloud_all_map, pcl::PointCloud<pcl::Normal>::Ptr all_normals)
 {
                   pcl::NormalEstimation<PointType,pcl::Normal> normalEstimation;
@@ -839,6 +900,7 @@ void opengl_pointcloud_render::preprocess(pcl::PointCloud< PointType > cloud_all
                   pcl::io::savePCDFileASCII(normal_filename, *all_normals);
 }
 
+// 把动态物体也画到深度图上，这样它们能正确地遮挡视线
 void opengl_pointcloud_render::render_dynclouds_on_depthimage(cv::Mat& depth_image)
 {
 
@@ -932,6 +994,7 @@ void opengl_pointcloud_render::render_dynclouds_on_depthimage(cv::Mat& depth_ima
         // std::cout << "One frame interline costs " << second.count() << " seconds, " << "first for loop costs "<< second2.count() << endl;
 }
 
+// 【面插值】用深度图上邻近的像素，把稀疏的洞补成连续表面
 void opengl_pointcloud_render::depth_interline_on_depthimage(cv::Mat& depth_image)
 {
 
@@ -1060,6 +1123,7 @@ void opengl_pointcloud_render::depth_interline_on_depthimage(cv::Mat& depth_imag
         // std::cout << "One frame interline costs " << second.count() << " seconds, " << "first for loop costs "<< second2.count() << endl;
 }
 
+// 找出“需要绘制面”的区域（配合三角形插值使用）
 void opengl_pointcloud_render::faces_need_draw_from_depthimage(cv::Mat& depth_image, cv::Mat color_image)
 {
     //count running time
@@ -1170,6 +1234,7 @@ void opengl_pointcloud_render::faces_need_draw_from_depthimage(cv::Mat& depth_im
 }
 
 //from depth image to point cloud
+// 【把深度图还原成 3D 点云】核心：逐像素反投影，并过滤无效点
 void opengl_pointcloud_render::depth_to_pointcloud(cv::Mat& depth_image, pcl::PointCloud<PointType>::Ptr origin_cloud, \
                         std::vector<Eigen::Matrix<float, 3, 1> >& depth_ptcloud_vec,\
                         vector<vector<Eigen::Matrix<float, 3, 1> > >& interline_ptcloud_vec)
@@ -1364,6 +1429,7 @@ void opengl_pointcloud_render::depth_to_pointcloud(cv::Mat& depth_image, pcl::Po
     // std::cout << "origin_cloud->points.size() = " << origin_cloud->points.size() << std::endl;
 }
 
+// 把深度图映射成彩色图（调试可视化用）
 inline cv::Mat opengl_pointcloud_render::colormap_depth_img(cv::Mat & depth_mat)
 {
     cv::Mat cm_img0;
@@ -1407,6 +1473,7 @@ inline cv::Mat opengl_pointcloud_render::colormap_depth_img(cv::Mat & depth_mat)
     return cm_img0;
 }
 
+// 【读深度缓冲】从 GPU 取回深度 → 线性化 → 后处理 → 转成点云
 void opengl_pointcloud_render::read_depth( int depth_buffer_precision , std::vector<Eigen::Matrix<float, 3, 1> >& depth_ptcloud_vec)
 {
     if ( depth_buffer_precision == 16 )
@@ -1585,6 +1652,7 @@ void opengl_pointcloud_render::read_depth( int depth_buffer_precision , std::vec
     }
 }
 
+// 深度 → 点云 的另一条实现（备用路径）
 void opengl_pointcloud_render::read_depth2pointcloud( int depth_buffer_precision , std::vector<Eigen::Matrix<float, 3, 1> >& depth_ptcloud_vec)
 {
         int image_width = 2*width;
@@ -1620,17 +1688,20 @@ void opengl_pointcloud_render::read_depth2pointcloud( int depth_buffer_precision
 
 }
 
+// 把 OpenGL 的非线性深度值换算成真实距离（GL 的深度是非线性的，必须转换）
 float opengl_pointcloud_render::LinearizeDepth(float depth,float near, float far) 
 {
     float z = depth * 2.0 - 1.0; // back to NDC 
     return (2.0 * near * far) / (far + near - z * (far - near));    
 }
 
+// 上式的逆向换算（备用）
 float opengl_pointcloud_render::regainrealdepth(float depth,float near, float far) 
 {
     return 1.0/(1.0/near + depth* (1.0/far - 1.0/near));   
 }
 
+// 测试用的小函数（当前没有被调用）
 void opengl_pointcloud_render::test_vector_insert()
 {
     std::vector<pcl::PointXYZ> vec_all;
@@ -1672,6 +1743,7 @@ void opengl_pointcloud_render::test_vector_insert()
 
 int if_first_call = 1;
 
+// 打印渲染相关信息（调试用）
 void opengl_pointcloud_render::get_Rendering_info()
 {
     if(if_first_call == 0)
@@ -1690,6 +1762,7 @@ void opengl_pointcloud_render::get_Rendering_info()
     // printf("GL_GPU_ADDRESS_NV: %s \r\n",  glGetString(GL_GPU_ADDRESS_NV));
 }
 
+// 打印 PCL 点云的字段信息（调试用）
 void opengl_pointcloud_render::printf_pointcloud2_infos(pcl::PCLPointCloud2 & v)
 {
     cout << "**** Printf pointcloud2 infos *****" << endl;
@@ -1709,6 +1782,7 @@ void opengl_pointcloud_render::printf_pointcloud2_infos(pcl::PCLPointCloud2 & v)
     cout << endl;
 }
 
+// 加载 PCD 文件
 void opengl_pointcloud_render::load_pcd_file(std::string file_name, pcl::PointCloud<PointType>& cloud_color_mesh)
 {
     // mesh = pcl::PolygonMesh();
@@ -1732,6 +1806,7 @@ void opengl_pointcloud_render::load_pcd_file(std::string file_name, pcl::PointCl
     }
 }
 
+// 加载法线文件
 void opengl_pointcloud_render::load_normal_file(std::string file_name, pcl::PointCloud<pcl::Normal>& normal_ptcloud)
 {
     int status = pcl::io::loadPCDFile<pcl::Normal>(file_name, normal_ptcloud);
@@ -1743,6 +1818,7 @@ void opengl_pointcloud_render::load_normal_file(std::string file_name, pcl::Poin
 }
 
 
+// 在随机位置画一个彩色立方体（调试用）
 inline void opengl_pointcloud_render::glDrawColouredCube_atrandompos(Eigen::Vector3f pos, double length)
 {
     const GLfloat x_min = pos(0) - 0.5*length;
@@ -1807,6 +1883,7 @@ struct HSV
     double v;
 };
 
+// HSV 与 BGR 颜色空间互换
 void opengl_pointcloud_render::HSV2BGR(HSV &hsv, BGR &bgr)
 {
     int h = hsv.h;
@@ -1871,6 +1948,7 @@ void opengl_pointcloud_render::HSV2BGR(HSV &hsv, BGR &bgr)
     bgr.r = (red < 0) ? 0 : bgr.r;
 }
 
+// 【重要】把地图点云上传到 GPU：建立哈希体素、准备顶点缓冲
 void opengl_pointcloud_render::init_pointcloud_data()
 {
     // preprocess(cloud_color_mesh,pointcloud_normals);
@@ -2017,6 +2095,7 @@ void opengl_pointcloud_render::init_pointcloud_data()
 }
 
 
+// 画一个半透明立方体（调试用）
 inline void opengl_pointcloud_render::glDrawColouredCube_alpha(GLfloat axis_min=-0.5f, GLfloat axis_max = +0.5f, float alpha = 1.0)
 {
     // const GLfloat x_min = pos(0) - 0.5*length;
@@ -2070,6 +2149,7 @@ inline void opengl_pointcloud_render::glDrawColouredCube_alpha(GLfloat axis_min=
 }
 
 template<typename T>
+// 求一张深度图的有效距离范围
 void opengl_pointcloud_render::get_real_near_far( cv::Mat  & depth_mat , double & min, double & max )
 {
     int temp_width = depth_mat.cols;
@@ -2106,6 +2186,7 @@ void opengl_pointcloud_render::get_real_near_far( cv::Mat  & depth_mat , double 
     }
 }
 
+// 深度图剔除：把太远、无效的像素清掉
 void opengl_pointcloud_render::culling_depth_image( cv::Mat  & depth_mat)
 {
 
@@ -2149,6 +2230,7 @@ void opengl_pointcloud_render::culling_depth_image( cv::Mat  & depth_mat)
 
 //Triangle interline method attempt but failed
 //check if the point is in triangle
+// 判断一个点是否落在三角形内（面插值用）
 inline bool opengl_pointcloud_render::is_in_triangle(Eigen::Vector3f p, Eigen::Vector3f a, Eigen::Vector3f b, Eigen::Vector3f c, Eigen::Vector3f& weights)
 {
     Eigen::Vector3f v0 = b - a;
@@ -2169,6 +2251,7 @@ inline bool opengl_pointcloud_render::is_in_triangle(Eigen::Vector3f p, Eigen::V
 }
 
 //interpolation in triangles
+// 用三角形做面插值（比逐点插值更准确）
 void opengl_pointcloud_render::interlinebytriangles(cv::Mat& depth_image)
 {
     pcl::search::KdTree<PointType> kdtree_2d;
@@ -2305,6 +2388,7 @@ void opengl_pointcloud_render::interlinebytriangles(cv::Mat& depth_image)
 
 }
 
+// 判断某个点是否在视场内
 bool opengl_pointcloud_render::is_in_fov(Eigen::Vector3f pt, Eigen::Vector3f pos, Eigen::Vector3f fov_direction, double fov_angle)
 {
     //get the direction vector
@@ -2324,6 +2408,7 @@ bool opengl_pointcloud_render::is_in_fov(Eigen::Vector3f pt, Eigen::Vector3f pos
     }
 }
 
+// 统计视场内的点数（调试 / 性能评估用）
 int opengl_pointcloud_render::count_fov_point_num(pcl::PointCloud< PointType > cloud_all_map, Eigen::Vector3f pos, Eigen::Vector3f fov_direction,\
                          double sensing_range, double half_fov_angle)
 {
@@ -2371,6 +2456,7 @@ int opengl_pointcloud_render::count_fov_point_num(pcl::PointCloud< PointType > c
         std::cout << "One search in kdtree cost " << second.count() << " seconds\n";
 }
 
+// 用高斯滤波做面插值（当 use_gaussian_filter 打开时使用）
 void opengl_pointcloud_render::new_gaussian_interline(cv::Mat  & depth_mat)
 {
 

@@ -2,6 +2,17 @@
 
 // Rotation ---------------------
 
+// ============================================================================
+// 【注意：本项目当前没有调用这个文件里的任何函数】
+//
+// 【它是什么】
+//   一套基于 Armadillo 的位姿数学工具：旋转/四元数换算、位姿复合与求逆，
+//   以及 IMU 的扩展卡尔曼滤波（EKF）所需的矩阵。
+//   属于早期仿真器遗留下来的代码，迁移后已成为“孤儿”。
+//
+// 【阅读建议】可以完全跳过。下面按功能分组加了简注，了解即可。
+// ============================================================================
+// 欧拉角（偏航-俯仰-横滚）→ 旋转矩阵
 mat ypr_to_R(const colvec& ypr)
 {
   double c, s;
@@ -39,6 +50,7 @@ mat ypr_to_R(const colvec& ypr)
   return R;
 }
 
+// 只有偏航角时的旋转矩阵（平面运动常用）
 mat yaw_to_R(double yaw)
 {
   mat R = zeros<mat>(2,2);
@@ -51,6 +63,7 @@ mat yaw_to_R(double yaw)
   return R;
 }
 
+// 旋转矩阵 → 欧拉角
 colvec R_to_ypr(const mat& R)
 {
   colvec n = R.col(0);
@@ -68,6 +81,7 @@ colvec R_to_ypr(const mat& R)
   return ypr;
 }
 
+// 四元数 → 旋转矩阵
 mat quaternion_to_R(const colvec& q)
 {
   double n = norm(q, 2);
@@ -101,6 +115,7 @@ mat quaternion_to_R(const colvec& q)
   return R;
 }
 
+// 旋转矩阵 → 四元数
 colvec R_to_quaternion(const mat& R)
 {
   colvec q(4);
@@ -140,6 +155,7 @@ colvec R_to_quaternion(const mat& R)
   return q;
 }
 
+// 四元数乘法（对应旋转的复合）
 colvec quaternion_mul(const colvec& q1, const colvec& q2)
 {
   double a1 = q1(0);
@@ -160,6 +176,7 @@ colvec quaternion_mul(const colvec& q1, const colvec& q2)
   return q3;
 }
 
+// 四元数求逆
 colvec quaternion_inv(const colvec& q)
 {
   colvec q2(4);
@@ -172,6 +189,7 @@ colvec quaternion_inv(const colvec& q)
 
 // General Pose Update ----------
 
+// 位姿复合：把两个位姿合并成一个
 colvec pose_update(const colvec& X1, const colvec& X2)
 {
   mat R1 = ypr_to_R(X1.rows(3,5));
@@ -185,6 +203,7 @@ colvec pose_update(const colvec& X1, const colvec& X2)
   return X3;
 }
 
+// 位姿求逆
 colvec pose_inverse(const colvec& X)
 {
   mat R = ypr_to_R(X.rows(3,5));
@@ -205,6 +224,7 @@ colvec pose_inverse(const colvec& X)
   return XI;
 }
 
+// 二维版本的位姿复合与求逆
 colvec pose_update_2d(const colvec& X1, const colvec& X2)
 {
   mat R = yaw_to_R(X1(2));
@@ -228,6 +248,7 @@ colvec pose_inverse_2d(const colvec& X)
 
 // For Pose EKF ----------------------
 
+// 位姿复合对第一个/第二个操作数的雅可比（EKF 用）
 mat Jplus1(const colvec& X1, const colvec& X2)
 {
   colvec X3 = pose_update(X1,X2);
@@ -290,6 +311,7 @@ mat Jplus2(const colvec& X1, const colvec& X2)
 
 // For IMU EKF ----------------------
 
+// IMU 状态预测：按当前状态和输入推进一步（EKF 的“预测步”）
 colvec state_update(const colvec& X, const colvec& U, double dt)
 {
   double ro = X(3);
@@ -315,6 +337,7 @@ colvec state_update(const colvec& X, const colvec& U, double dt)
   return Xt;
 }
 
+// 状态转移函数对“状态”的雅可比矩阵
 mat jacobianF(const colvec& X, const colvec& U, double dt)
 {
   double x  = X(0);
@@ -429,6 +452,7 @@ mat jacobianF(const colvec& X, const colvec& U, double dt)
   return F;
 }
 
+// 状态转移函数对“输入”的雅可比矩阵
 mat jacobianU(const colvec& X, const colvec& U, double dt)
 {
   double x  = X(0);
@@ -515,12 +539,14 @@ mat jacobianU(const colvec& X, const colvec& U, double dt)
   return G;
 }
 
+// 观测模型：从状态算出应该观测到的量
 colvec state_measure(const colvec& X)
 {
   colvec Z = X.rows(0,5);
   return Z;
 }
 
+// 观测模型对状态的雅可比矩阵
 mat jacobianH()
 {
   mat H = zeros<mat>(6,9);

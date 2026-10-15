@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- ============================================================================
+  文件：base.dae —— 3D 模型（COLLADA 格式）
+
+  这是导出的网格几何数据（顶点/三角面/材质），作为机器人的外观模型，
+  由 xacro/leg.xacro 与 robot.xacro 通过 mesh 引用。
+  几何数据本身没有“逻辑”可讲，因此只加这个文件头说明，不逐行标注。
+============================================================================ -->
 <COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <asset>
     <contributor>

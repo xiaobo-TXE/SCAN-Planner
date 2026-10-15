@@ -1,3 +1,10 @@
+# ============================================================================
+# 文件：.gitignore —— 告诉 git 哪些文件不需要纳入版本管理
+#
+# 【为什么需要它】
+#   编译产物、运行时日志、编辑器临时文件等不该提交到仓库，
+#   否则仓库会变得又大又乱。这里按类别列出这些“忽略规则”。
+# ============================================================================
 # ROS 2 / colcon build products
 /build/
 /install/
@@ -6,12 +13,14 @@
 /.colcon/
 /compile_commands.json
 
+# ---- ROS 2 运行期产生的状态文件 ----
 # ROS runtime state
 /.ros/
 *.bag
 *.db3
 *.mcap
 
+# ---- Python 缓存与测试输出 ----
 # Python cache and test output
 __pycache__/
 *.py[cod]
@@ -19,6 +28,7 @@ __pycache__/
 .coverage
 htmlcov/
 
+# ---- 编辑器 / 操作系统产生的临时文件 ----
 # Editor and operating-system files
 /.vscode/
 /.idea/
@@ -28,6 +38,7 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# ---- 本地拷贝的旧版图形库依赖（ROS 2 版本改用系统安装的 GLFW/GLEW/OpenGL/GLM） ----
 # Locally copied legacy dependencies. The ROS 2 build uses system GLFW, GLEW,
 # OpenGL and GLM packages instead; see README.md for installation commands.
 /src/simulator/local_sensing/third_party/
@@ -36,6 +47,7 @@ Thumbs.db
 /src/simulator/local_sensing/include/glad.c
 /src/simulator/local_sensing/include/glm/
 
+# ---- 编译产物（目标文件、静态库、动态库） ----
 # Native build artifacts
 *.o
 *.obj

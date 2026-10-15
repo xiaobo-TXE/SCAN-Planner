@@ -1,4 +1,11 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：bspline_opt/package.xml
+
+  这个包叫 bspline_opt，负责“B 样条轨迹表示 + 轨迹优化”。
+  依赖 path_searching（拿 A* 的避障方向）、plan_env（查障碍）、Eigen、rclcpp；
+  测试用 ament_cmake_gtest。
+============================================================================ -->
 <package format="3">
   <name>bspline_opt</name>
   <version>0.1.0</version>
@@ -7,6 +14,7 @@
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>eigen</depend>
+  <!-- 依赖 path_searching：优化器要用 A* 计算“把控制点往哪边顶开” -->
   <depend>path_searching</depend>
   <depend>plan_env</depend>
   <depend>rclcpp</depend>

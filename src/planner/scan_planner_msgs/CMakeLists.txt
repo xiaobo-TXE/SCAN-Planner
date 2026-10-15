@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/planner/scan_planner_msgs/CMakeLists.txt —— 构建脚本
+#
+# 用 rosidl 生成自定义消息：Bspline 与 DataDisp
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(scan_planner_msgs)
 

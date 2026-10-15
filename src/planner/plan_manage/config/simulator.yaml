@@ -1,12 +1,25 @@
+# ============================================================================
+# 文件：config/simulator.yaml —— 仿真环境参数
+#
+# 【这个文件是干什么的】
+#   只在“仿真模式”(is_real_world:=false) 下用到，用来造一个假世界：
+#   1) mockamap_node      —— 程序化生成随机地图
+#   2) pcl_render_node    —— 假装成激光/相机，从地图里“看”出点云或深度图
+#   3) odom_visualization —— 在 RViz 里画出机器人、路径
+# ============================================================================
+#
+# ---- 随机地图生成器 mockamap_node ----
 mockamap_node:
   ros__parameters:
     use_sim_time: false
     seed: 127
     update_freq: 0.5
+    # 地图体素分辨率(米)
     resolution: 0.1
     x_length: 40
     y_length: 40
     z_length: 5
+    # 生成哪种地图：1=柏林噪声, 2=随机方块(本项目默认), 3=2D 迷宫, 4=3D 迷宫
     type: 2
     complexity: 0.05
     fill: 0.12
@@ -16,19 +29,24 @@ mockamap_node:
     width_max: 0.8
     height_min: 2.0
     height_max: 2.0
+    # 随机地图里放多少个障碍方块（只在 type=2 时有用）
     obstacle_number: 500
     surface_resolution: 0.05
 
+# ---- 传感器仿真器 pcl_render_node ----
+# 它从全局地图里“渲染”出传感器数据，模仿真实激光/相机。
 pcl_render_node:
   ros__parameters:
     use_sim_time: false
     quadrotor_name: quad_0
+    # 仿真哪种传感器：lidar(点云) 或 depth(深度图)。要和 run.launch.py 里一致。
     sensor_type: lidar
     body_pose_topic: body_pose
     map.resolution: 0.1
     map.x_size: 40.0
     map.y_size: 40.0
     map.z_size: 5.0
+    # 传感器能看多远(米)
     sensing_horizon: 40.0
     sensing_rate: 10.0
     estimation_rate: 10.0
@@ -37,7 +55,9 @@ pcl_render_node:
     vertical_fov: 90.0
     min_raylength: 1.0
     downsample_res: 0.1
+    # 激光的俯仰安装角(度)：让激光斜向下打，能看到地面附近
     lidar_pitch: 45.0
+    # 1 = 360 度全景激光；0 = 只有前方一个扇区
     is_360lidar: 1
     use_minicf_pattern: 1
     use_avia_pattern: 0
@@ -60,6 +80,8 @@ pcl_render_node:
     use_global_map_topic: true
     pcd_map_file: ''
 
+# ---- 里程计可视化 odom_visualization ----
+# 把机器人的位置/轨迹/速度画成 RViz 里的图形。
 odom_visualization:
   ros__parameters:
     use_sim_time: false

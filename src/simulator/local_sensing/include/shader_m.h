@@ -1,3 +1,15 @@
+// ============================================================================
+// 【第三方代码，非本项目编写】
+//   来源：LearnOpenGL 教程的经典 Shader 封装类。
+//
+// 【它做什么】
+//   把“从文件读着色器源码 → 编译 → 链接”这套 OpenGL 样板封装成一个类，
+//   并提供 setXxx 系列函数把参数（矩阵、向量、标量）传给着色器。
+//
+// 【在本项目里的用法】
+//   GPU 渲染器在 render_pointcloud() 里用 setMat4/setVec2/setMat3 等，
+//   把相机参数、视场、射程、旋转、位置传给 360camera.vs。
+// ============================================================================
 #ifndef SHADER_H
 #define SHADER_H
 
@@ -9,6 +21,7 @@
 #include <sstream>
 #include <iostream>
 
+// OpenGL 着色器封装类（ID 就是编译链接后得到的程序编号）
 class Shader
 {
 public:
@@ -17,6 +30,7 @@ public:
     // ------------------------------------------------------------------------
     Shader()
     {}
+    // 从文件读入顶点/片段着色器源码，编译并链接成一个可直接使用的程序
     Shader(const char* vertexPath, const char* fragmentPath)
     {
         // 1. retrieve the vertex/fragment source code from filePath
@@ -74,12 +88,14 @@ public:
     }
     // activate the shader
     // ------------------------------------------------------------------------
+    // 启用这个着色器程序（后续绘制都用它）
     void use() const
     { 
         glUseProgram(ID); 
     }
     // utility uniform functions
     // ------------------------------------------------------------------------
+    // 下面一大串 setXxx：把参数传给着色器里的 uniform 变量
     void setBool(const std::string &name, bool value) const
     {         
         glUniform1i(glGetUniformLocation(ID, name.c_str()), (int)value); 
@@ -140,6 +156,7 @@ public:
 private:
     // utility function for checking shader compilation/linking errors.
     // ------------------------------------------------------------------------
+    // 编译或链接失败时把错误日志打印出来（方便定位着色器语法问题）
     void checkCompileErrors(GLuint shader, std::string type)
     {
         GLint success;

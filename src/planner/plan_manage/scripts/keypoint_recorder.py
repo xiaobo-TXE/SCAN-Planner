@@ -1,4 +1,17 @@
 #!/usr/bin/env python3
+# ============================================================================
+# 文件：scripts/keypoint_recorder.py —— 航点录制小工具
+#
+# 【这个文件是干什么的】
+#   你在真实机器人上手动把机器人开到想去的位置，按一下键就把当前位置
+#   记录成一个航点；最后保存成 YAML，供 navi_mode=2 使用。
+#
+# 【怎么用】
+#   ros2 run scan_planner keypoint_recorder.py --odom /LIO/odom_vehicle \
+#       --output keypoints.yaml
+#   然后按提示操作：回车/空格/a 添加，r 替换，d 删除，u 撤销，l 列表，
+#   s 保存，q 保存并退出。
+# ============================================================================
 """Interactively record odometry positions as ROS 2 SCAN-Planner parameters."""
 
 import argparse
@@ -19,11 +32,14 @@ from rclpy.utilities import remove_ros_args
 DEFAULT_OUTPUT = os.path.join(os.getcwd(), "keypoints.yaml")
 
 
+# 把浮点数格式化成简洁的字符串（去掉多余的 0），方便写进 YAML。
 def format_float(value):
     text = f"{float(value):.6f}".rstrip("0").rstrip(".")
     return "0" if text in ("", "-0") else text
 
 
+# “原子写入”：先写临时文件再改名。这样即使中途崩溃，
+# 也不会把原来的文件写坏。
 def atomic_write(path, content):
     directory = os.path.dirname(os.path.abspath(path))
     os.makedirs(directory, exist_ok=True)
@@ -33,6 +49,8 @@ def atomic_write(path, content):
     os.replace(temporary, path)
 
 
+# 录制器类（本身是一个 ROS 节点）。
+# 它订阅里程计，把用户按下的位置存进 self.waypoints 列表。
 class KeypointRecorder(Node):
     def __init__(self, odom_topic, output_path):
         super().__init__("keypoint_recorder")
@@ -73,6 +91,8 @@ class KeypointRecorder(Node):
         else:
             self.get_logger().warning("Invalid waypoint index")
 
+# 把航点列表拼成 YAML 文本：
+# 三个数字一组（x,y,z）平铺在 fsm.waypoints 数组里。
     def build_yaml(self):
         values = [format_float(value) for point in self.waypoints for value in point]
         return (
@@ -94,6 +114,8 @@ class KeypointRecorder(Node):
         finally:
             tty.setcbreak(sys.stdin.fileno())
 
+# 主循环：一边接收里程计消息，一边监听键盘按键。
+# 用 cbreak 模式，这样按一个键就立刻响应（不用回车）。
     def run(self):
         if not sys.stdin.isatty():
             raise RuntimeError("keyboard control requires a TTY")
@@ -126,6 +148,8 @@ class KeypointRecorder(Node):
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
 
 
+# 程序入口：解析命令行参数（--odom 里程计话题、--output 输出文件），
+# 创建录制器并运行。
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--odom", default="/LIO/odom_vehicle")

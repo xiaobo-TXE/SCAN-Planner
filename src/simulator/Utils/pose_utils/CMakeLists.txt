@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/Utils/pose_utils/CMakeLists.txt —— 构建脚本
+#
+# 构建库 libpose_utils（Armadillo 位姿工具，本项目当前未使用）
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(pose_utils)
 

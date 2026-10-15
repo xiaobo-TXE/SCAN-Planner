@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/local_sensing/CMakeLists.txt —— 构建脚本
+#
+# 构建两个可执行程序：pcl_render_node（CPU，总是构建）与 opengl_render_node（GPU，需 -DUSE_GPU=ON）
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(local_sensing_node LANGUAGES C CXX)
 

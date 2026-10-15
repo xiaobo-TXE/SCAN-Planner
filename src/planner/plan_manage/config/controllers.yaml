@@ -1,28 +1,49 @@
+# ============================================================================
+# 文件：config/controllers.yaml
+#
+# 【这个文件是干什么的】
+#   给“控制器”和“仿真器/步态”这几个节点用的参数。
+#   四个小节分别对应四个可执行程序。
+# ============================================================================
+#
+# ---- 闭环控制器 closed_loop_controller ----
 closed_loop_controller:
   ros__parameters:
     use_sim_time: false
+    # “前瞻时间”(秒)：看点时不是看当前位置，而是看 0.8 秒后的轨迹点，
+    # 用它来决定机器人该朝哪个方向（避免转向滞后）。
     time_forward: 0.8
+    # 朝向误差超过这个角度(弧度)时，就先原地转向、暂停前进。
     heading_error_threshold: 0.8
+    # 位置纠偏的比例增益：误差越大，修正速度越大。
     kp_pos: 0.8
+    # 转向的比例增益：朝向误差 → 转向角速度。
     kp_yaw: 1.5
     max_vx: 0.75
     max_vy: 0.35
     max_vyaw: 1.0
+    # 距离终点小于这个值(米)且已走完轨迹，就发“停下”。
     finish_dist: 0.15
 
+# ---- 开环控制器 open_loop_controller ----
+# 它不控制机器人，只把轨迹直接当成里程计发出去（理想执行）。
 open_loop_controller:
   ros__parameters:
     use_sim_time: false
     frame_id: world
     child_frame_id: base
+    # 每秒发布多少帧假里程计
     publish_rate: 100.0
     yaw_min_speed: 0.05
     hold_final_position: true
+    # 初始位置（必须和地图里机器人的起始位置一致，否则一开始就对不上）
     init_x: -19.0
     init_y: 1.0
     init_z: 0.3
     init_yaw: 0.0
 
+# ---- 运动学仿真器 go2_kinematic_sim ----
+# 接收 cmd_vel，用简单积分算出机器人位置，再发里程计，形成闭环。
 go2_kinematic_sim:
   ros__parameters:
     use_sim_time: false
@@ -33,19 +54,25 @@ go2_kinematic_sim:
     max_vx: 0.75
     max_vy: 0.35
     max_vyaw: 1.0
+    # 超过这个时间(秒)没收到新速度指令，就把速度清零（失联停车）。
     cmd_timeout: 0.3
     sim_rate: 100.0
+    # 是否广播 world→base 的坐标变换（RViz 显示需要）
     publish_tf: true
     frame_id: world
     child_frame_id: base
 
+# ---- 步态发布器 go2_gait_publisher ----
+# 纯动画：让 RViz 里的 Go2 腿按速度摆起来，不影响规划。
 go2_gait_publisher:
   ros__parameters:
     use_sim_time: false
     rate: 60.0
+    # 步频(每秒迈几步)
     gait_frequency: 2.2
     min_walk_speed: 0.05
     max_walk_speed: 1.0
+    # true = 不管速度多慢都一直小跑；false = 停下来时保持站立
     always_trot: false
     hip_swing: 0.08
     thigh_swing: 0.32

@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/Utils/go2_description/CMakeLists.txt —— 构建脚本
+#
+# 本包没有 C++ 代码，只安装模型、配置与 launch 等资源文件
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(go2_description)
 

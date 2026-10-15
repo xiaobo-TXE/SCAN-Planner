@@ -1,18 +1,30 @@
+# ============================================================================
+# 文件：go2_description/config/bridge.yaml
+#
+# 【这个文件是干什么的】
+#   ros_gz_bridge 的配置：把 Gazebo 里的话题“桥接”到 ROS 2。
+#   每条记录说明：ROS 话题名、Gazebo 话题名、两边的消息类型、传输方向。
+#   方向 GZ_TO_ROS 表示“Gazebo 发、ROS 2 收”。
+# ============================================================================
+# 仿真时钟：ROS 2 靠它获得 use_sim_time 的时间
 - ros_topic_name: /clock
   gz_topic_name: /clock
   ros_type_name: rosgraph_msgs/msg/Clock
   gz_type_name: gz.msgs.Clock
   direction: GZ_TO_ROS
+# IMU 数据
 - ros_topic_name: /go2/imu
   gz_topic_name: /go2/imu
   ros_type_name: sensor_msgs/msg/Imu
   gz_type_name: gz.msgs.IMU
   direction: GZ_TO_ROS
+# 机器人位姿 → ROS 的 TF 变换（注意 Gazebo 侧话题名是 /model/go2/pose）
 - ros_topic_name: /tf
   gz_topic_name: /model/go2/pose
   ros_type_name: tf2_msgs/msg/TFMessage
   gz_type_name: gz.msgs.Pose_V
   direction: GZ_TO_ROS
+# 四个足端的接触力（下面四条分别是左前/右前/左后/右后）
 - ros_topic_name: /go2/FL_foot_contact
   gz_topic_name: /go2/FL_foot_contact
   ros_type_name: ros_gz_interfaces/msg/Contacts

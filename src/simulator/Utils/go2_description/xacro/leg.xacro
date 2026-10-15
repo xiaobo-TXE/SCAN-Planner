@@ -2,8 +2,29 @@
 
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
+    <!-- ============================================================================
+    文件：xacro/leg.xacro —— “一条腿”的模板
+    
+    【这个文件是干什么的】
+    把一条腿（髋 + 大腿 + 小腿 + 脚）的完整定义封装成一个宏。
+    robot.xacro 里调用 4 次（FR/FL/RR/RL），靠参数区分左右和前后。
+    
+    【四个参数的含义】
+    name           这条腿的前缀名（会拼进所有关节/刚体名字里）
+    mirror         左右镜像：+1 取正、-1 取负（决定腿往左还是右装）
+    mirror_dae     外观网格是否用镜像版（左腿/右腿的模型文件不同）
+    front_hind     前后：+1 前腿、-1 后腿（决定装在躯干前还是后）
+    front_hind_dae 外观网格是否用“后腿版”
+    
+    【每条腿的三个关节】
+    *_hip_joint   髋关节：绕 x 轴转（腿左右摆动）
+    *_thigh_joint 大腿关节：绕 y 轴转（腿前后摆）
+    *_calf_joint  小腿关节：绕 y 轴转（膝盖弯曲）
+    另外每个关节还配了一个“转子(rotor)”刚体，只是为了显示更像真机。
+    ============================================================================ -->
     <xacro:macro name="leg" params="name mirror mirror_dae front_hind front_hind_dae">
 
+        <!-- 髋关节：可转动，绕 x 轴；父级是躯干 -->
         <joint name="${name}_hip_joint" type="revolute">
             <xacro:if value="${(mirror_dae == False) and (front_hind_dae == True)}">
                 <origin rpy="0 0 0" xyz="${leg_offset_x} ${-leg_offset_y} 0"/>
@@ -29,6 +50,7 @@
             </xacro:if>            
         </joint>
 
+        <!-- 髋部的“转子”固定关节（纯外观，模拟电机外壳） -->
         <joint name="${name}_hip_rotor_joint" type="fixed">
             <xacro:if value="${(mirror_dae == False) and (front_hind_dae == True)}">
                 <origin rpy="0 0 0" xyz="${hip_rotor_offset_x} ${-hip_rotor_offset_y} 0"/>
@@ -46,6 +68,7 @@
             <child link="${name}_hip_rotor"/>         
         </joint>
 
+        <!-- 髋部刚体：外观网格 + 简化碰撞体 + 质量/惯量（数值来自 const.xacro） -->
         <link name="${name}_hip">
             <visual>
                 <xacro:if value="${(mirror_dae == True) and (front_hind_dae == True)}">
@@ -105,6 +128,7 @@
             </inertial>
         </link>
 
+        <!-- 大腿关节：绕 y 轴转；带角度限位 -->
         <joint name="${name}_thigh_joint" type="revolute">
             <origin rpy="0 0 0" xyz="0 ${thigh_offset*mirror} 0"/>
             <parent link="${name}_hip"/>
@@ -120,6 +144,7 @@
             <child link="${name}_thigh_rotor"/>         
         </joint>
 
+        <!-- 大腿刚体 -->
         <link name="${name}_thigh">
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -173,6 +198,7 @@
             </inertial>
         </link>
 
+        <!-- 小腿（膝盖）关节 -->
         <joint name="${name}_calf_joint" type="revolute">
             <origin rpy="0 0 0" xyz="0 0 ${-thigh_length}"/>
             <parent link="${name}_thigh"/>
@@ -188,6 +214,7 @@
             <child link="${name}_calf_rotor"/>         
         </joint>
 
+        <!-- 小腿刚体 -->
         <link name="${name}_calf">
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -236,12 +263,14 @@
             </inertial>
         </link>
 
+        <!-- 脚：固定在小腿末端，用一个小球做碰撞体 -->
         <joint name="${name}_foot_fixed" type="fixed">
             <origin rpy="0 0 0" xyz="0 0 ${-(calf_length)}"/>
             <parent link="${name}_calf"/>
             <child link="${name}_foot"/>
         </joint>
 
+        <!-- 脚刚体（Gazebo 的接触力传感器就是挂在它上面） -->
         <link name="${name}_foot">
             <visual>
                 <origin rpy="0 0 0" xyz="0 0 0"/>

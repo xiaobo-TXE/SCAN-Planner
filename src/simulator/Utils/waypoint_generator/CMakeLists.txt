@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/Utils/waypoint_generator/CMakeLists.txt —— 构建脚本
+#
+# 构建 waypoint_generator：把 RViz 目标点转成一条路径
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(waypoint_generator)
 

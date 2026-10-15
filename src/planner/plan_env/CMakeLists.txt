@@ -1,3 +1,13 @@
+# ============================================================================
+# 文件：plan_env/CMakeLists.txt —— 构建脚本
+#
+# 【这个包会生成什么】
+#   一个静态库 libplan_env（由 grid_map.cpp + raycast.cpp 编译而成），
+#   供规划器、A*、B 样条优化器共同使用（它们都要查地图）。
+#
+# 【依赖】PCL（点云库）、OpenCV（图像处理）、cv_bridge、message_filters、
+#          Eigen、tf2、以及各种 ROS 消息类型。
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(plan_env)
 
@@ -21,6 +31,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(visualization_msgs REQUIRED)
 
+# 只编译两个源文件，打包成库 plan_env。
 add_library(plan_env src/grid_map.cpp src/raycast.cpp)
 target_include_directories(plan_env PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

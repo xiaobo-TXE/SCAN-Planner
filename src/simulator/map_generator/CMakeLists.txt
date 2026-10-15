@@ -1,3 +1,8 @@
+# ============================================================================
+# 文件：src/simulator/map_generator/CMakeLists.txt —— 构建脚本
+#
+# 构建 map_pub：读取 PCD 文件并发布为点云
+# ============================================================================
 cmake_minimum_required(VERSION 3.8)
 project(map_generator)
 

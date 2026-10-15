@@ -45,6 +45,19 @@ Dr. Fu Zhang < fuzhang@hku.hk >.
  ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  POSSIBILITY OF SUCH DAMAGE.
 */
+// ============================================================================
+// 【第三方代码，非本项目编写】
+//   来源：R3LIVE / FAST-LIO2（作者 Jiarong Lin，香港大学）
+//   上面那段英文就是它的开源许可证，请勿删除。
+//
+// 【它的作用】
+//   提供一个“三维哈希表”：用 (x, y, z) 坐标直接存取数据。
+//   传感器仿真器用它来组织体素（代替三维数组），好处是：
+//     · 不需要预先知道空间范围，没有边界限制
+//     · 只给“实际有数据的格子”分配内存，省空间
+//
+// 【阅读建议】了解它的用途即可，不必细读实现细节。
+// ============================================================================
 #pragma once
 #include "unordered_map"
 #include "iostream"
@@ -54,6 +67,7 @@ Dr. Fu Zhang < fuzhang@hku.hk >.
 #define HASH_PRIME 116101
 #define MAX_N 201326611
 
+// 三维整数坐标，作为哈希表的“键”
 class Hash_3D_key
 {
   public:
@@ -79,10 +93,12 @@ struct hash< Hash_3D_key >
 };
 } // namespace std
 
+// 三维哈希表的主实现：键是三维坐标，值是任意类型 T
 template < typename data_type = float, typename T = void * >
 struct Hash_map_3d
 {
     // const double N = Common_tools::Hash_key_factor< data_type >::factor;
+    // 缩放系数：把浮点坐标乘成整数再做哈希（float 用 1e5，double 用 1e7）
     double N = 1;
     using hash_3d_T = std::unordered_map< Hash_3D_key, T >;
     hash_3d_T m_map_3d_hash_map;
@@ -97,6 +113,7 @@ struct Hash_map_3d
             N = 1e7;
         }
     }
+    // 查询：找到返回数据指针，找不到返回空指针
     T* get_data(const data_type &x, const data_type &y, const data_type &z)
     {
         typename hash_3d_T::iterator it = m_map_3d_hash_map.find( Hash_3D_key( x * N, y * N, z * N ) );
@@ -115,8 +132,10 @@ struct Hash_map_3d
         m_map_3d_hash_map.reserve(size);
     }
 
+    // 插入或更新一个格子
     void insert( const data_type &x, const data_type &y, const data_type &z, const T &target ) { m_map_3d_hash_map[ Hash_3D_key( x * N, y * N, z * N ) ] = target; }
 
+    // 判断某个格子是否存在
     bool if_exist( const data_type &x, const data_type &y, const data_type &z )
     {
         if ( m_map_3d_hash_map.find( Hash_3D_key( x * N, y * N, z * N ) ) == m_map_3d_hash_map.end() )
@@ -141,6 +160,7 @@ struct Hash_map_3d
     int total_size() { return m_map_3d_hash_map.size(); }
 };
 
+// 下面是另一种实现方式（三层嵌套 map），因为上面 #if 1 而被跳过，不会参与编译
 #else
 template < typename data_type = float, typename T = void * >
 struct Hash_map_3d
@@ -186,6 +206,7 @@ struct Hash_map_3d
 };
 #endif
 
+// 二维版本（本项目主要用上面的三维版本）
 template < typename data_type = float, typename T = void * >
 struct Hash_map_2d
 {

@@ -1,4 +1,10 @@
 <?xml version="1.0"?>
+<!-- ============================================================================
+  文件：path_searching/package.xml
+
+  这个包叫 path_searching，只提供 A* 寻路功能。
+  依赖：eigen（数学库）、plan_env（查障碍）、rclcpp（ROS 2 C++ 库）。
+============================================================================ -->
 <package format="3">
   <name>path_searching</name>
   <version>0.1.0</version>
@@ -7,6 +13,7 @@
   <license>Apache-2.0</license>
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>eigen</depend>
+  <!-- 依赖 plan_env：A* 要用栅格地图判断某个格子是不是障碍 -->
   <depend>plan_env</depend>
   <depend>rclcpp</depend>
   <export><build_type>ament_cmake</build_type></export>

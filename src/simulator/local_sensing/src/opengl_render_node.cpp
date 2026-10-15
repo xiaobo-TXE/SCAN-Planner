@@ -1,3 +1,20 @@
+// ============================================================================
+// 文件：src/opengl_render_node.cpp —— GPU 版传感器仿真器（需 use_gpu:=true）
+//
+// 【和 CPU 版的关系】
+//   功能和 CPU 版（pointcloud_render_node.cpp）**完全等价**：
+//   同样是“把地图当真实世界，渲染出传感器能看到的数据”。
+//   区别只在于：这里把点云画到 OpenGL 的深度缓冲上，由显卡来完成“找最近点”，
+//   速度快很多，适合大地图。
+//
+// 【编译要求】
+//   必须在编译时加 -DUSE_GPU=ON，否则这个可执行程序不会被生成。
+//
+// 【阅读建议】
+//   先读 CPU 版理解思路；本文件只需关注“哪些地方换成了 GPU 调用”，
+//   核心那两行是：render.input_dyn_clouds(...) 和 render.render_pointcloud(...)。
+//   具体实现在 opengl_sim.hpp。
+// ============================================================================
 #include "opengl_sim.hpp"
 #include <cv_bridge/cv_bridge.h>
 #include <algorithm>
@@ -27,9 +44,11 @@
 using namespace Eigen;
 using namespace std;
 
+// 强度范围用的是 0~1 的归一化值（CPU 版用的是 0~255 整数）
 #define MAX_INTENSITY 1
 #define MIN_INTENSITY 0.1
 
+// PCD 地图文件路径（当 use_global_map_topic=false 时用它读地图）
 string file_name;
 deque<double> comp_time_vec;
 rclcpp::Node::SharedPtr ros_node;
@@ -39,8 +58,10 @@ std::string sensor_type_ = "depth";
 int drone_num = 0;
 int drone_id = 0;
 double lidar_pitch;
+// 【核心对象】GPU 渲染器，实现在 opengl_sim.hpp 里
 opengl_pointcloud_render render;
 
+// 发布器：与 CPU 版类似，额外多了一个 collision_cloud（碰撞可视化）
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_cloud, pub_intercloud,
     pub_dyncloud, pub_uavcloud, pub_collisioncloud;
 rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr pinhole_depth_pub_;
@@ -54,15 +75,20 @@ std::vector<rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr> other_odom
 rclcpp::TimerBase::SharedPtr local_sensing_timer, dynobj_timer;
 std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 
+// 记录启动时刻，用来计算激光扫描图案的时间相位
 rclcpp::Time t_init(0, 0, RCL_ROS_TIME);
 
+// 数据到齐的标志
 bool has_odom(false);
 bool has_global_map(false);
+// 地图来源开关：true=订阅话题，false=从 PCD 文件读
 bool use_global_map_topic(false);
 
 nav_msgs::msg::Odometry odom_;
+// 传感器安装矩阵（注意这里是单精度 float，CPU 版是 double）
 Eigen::Matrix4f sensor2body, sensor2world;
 
+// 拼话题名：/quad_0/xxx（与 CPU 版相同）
 std::string quadTopic(const std::string &name) {
   std::string prefix = quad_name.empty() ? std::string("quad_0") : quad_name;
   if (prefix.front() != '/') {
@@ -71,6 +97,7 @@ std::string quadTopic(const std::string &name) {
   return prefix + "/" + name;
 }
 
+// 下面一大段参数与 CPU 版基本一致，只是多了一个 use_gaussian_filter
 int output_pcd;
 int collisioncheck_enable;
 int is_360lidar;
@@ -84,6 +111,7 @@ double gl_xl, gl_yl, gl_zl;
 double resolution, inv_resolution;
 int GLX_SIZE, GLY_SIZE, GLZ_SIZE;
 
+// 相机内参默认值
 int cam_width = 640;
 int cam_height = 480;
 double cam_fx = 387.229248046875;
@@ -93,6 +121,7 @@ double cam_cy = 243.44969177246094;
 
 int plane_interline = 1;
 
+// 多机仿真相关变量
 // multi uav variables
 // int drone_id = 0;
 vector<Eigen::Vector3d> other_uav_pos;
@@ -108,6 +137,7 @@ int drone_drawpoints_num[3];
 int use_uav_extra_model = 1;
 pcl::PointCloud<PointType> uav_extra_model;
 
+// 动态障碍物相关变量
 // dynamic objects variables
 int dynobj_enable;
 double dynobject_size;
@@ -136,6 +166,7 @@ pcl::PointCloud<PointType>::Ptr local_map(new pcl::PointCloud<PointType>);
 sensor_msgs::msg::PointCloud2 local_map_pcd, sensor_map_pcd;
 
 // variables for collision checks
+// 碰撞检测用的两棵 KD 树（地图点 / 动态点）
 pcl::search::KdTree<PointType> _kdtreeLocalMap, kdtree_dyn;
 vector<int> pointIdxRadiusSearch;
 vector<float> pointRadiusSquaredDistance;
@@ -148,14 +179,17 @@ PointType uav_modelmax;
 int uavhash_xsize, uavhash_ysize, uavhash_zsize;
 pcl::PointCloud<PointType> collision_points;
 
+// 当前是否深度相机模式
 bool useDepthSensor() {
   return sensor_type_ == "depth";
 }
 
+// 当前是否激光模式
 bool useLidarSensor() {
   return sensor_type_ == "lidar";
 }
 
+// 把 4×4 位姿矩阵打包成里程计消息（与 CPU 版相同）
 nav_msgs::msg::Odometry makeSensorPoseMsg(const nav_msgs::msg::Odometry &body_odom,
                                      const Eigen::Matrix4f &sensor_pose,
                                      const std::string &child_frame_id) {
@@ -176,9 +210,11 @@ nav_msgs::msg::Odometry makeSensorPoseMsg(const nav_msgs::msg::Odometry &body_od
   return sensor_odom;
 }
 
+// 深度模式的地图准备：过滤无效点 → 体素下采样 → 记包围盒 → 建 KD 树
 bool preparePinholeMap(const pcl::PointCloud<PointType> &raw_cloud) {
   pcl::PointCloud<PointType> finite_cloud;
   finite_cloud.points.reserve(raw_cloud.points.size());
+  // 只保留坐标有限的点（去掉 NaN / Inf）
   for (const auto &point : raw_cloud.points) {
     if (std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z)) {
       finite_cloud.points.push_back(point);
@@ -194,6 +230,7 @@ bool preparePinholeMap(const pcl::PointCloud<PointType> &raw_cloud) {
   finite_cloud.height = 1;
   finite_cloud.is_dense = true;
 
+  // 体素下采样，降低点数
   pcl::VoxelGrid<PointType> voxel_sampler;
   voxel_sampler.setInputCloud(finite_cloud.makeShared());
   voxel_sampler.setLeafSize(downsample_res, downsample_res, downsample_res);
@@ -208,6 +245,7 @@ bool preparePinholeMap(const pcl::PointCloud<PointType> &raw_cloud) {
   cloud_all_map.height = 1;
   cloud_all_map.is_dense = true;
 
+  // 记录包围盒，并给地图建 KD 树（深度投影要用）
   pcl::getMinMax3D(cloud_all_map, global_mapmin, global_mapmax);
   _kdtreeLocalMap.setInputCloud(cloud_all_map.makeShared());
 
@@ -215,6 +253,7 @@ bool preparePinholeMap(const pcl::PointCloud<PointType> &raw_cloud) {
   return true;
 }
 
+// 从 PCD 文件读入地图，再走上面的准备流程
 bool loadPinholeMapFromFile(const std::string &map_file) {
   pcl::PointCloud<PointType> raw_cloud;
   if (pcl::io::loadPCDFile<PointType>(map_file, raw_cloud) == -1) {
@@ -225,10 +264,12 @@ bool loadPinholeMapFromFile(const std::string &map_file) {
   return preparePinholeMap(raw_cloud);
 }
 
+// 发布相机位姿
 void publishCameraPose(const nav_msgs::msg::Odometry &body_odom) {
   camera_pose_pub_->publish(makeSensorPoseMsg(body_odom, sensor2world, "camera"));
 }
 
+// 发布激光位姿（位置和姿态直接由调用者传入）
 void publishLidarPose(const nav_msgs::msg::Odometry &body_odom, const rclcpp::Time &stamp,
                       const Eigen::Vector3f &pos, const Eigen::Quaternionf &quat) {
   nav_msgs::msg::Odometry lidar_pose;
@@ -246,7 +287,9 @@ void publishLidarPose(const nav_msgs::msg::Odometry &body_odom, const rclcpp::Ti
   lidar_pose_pub_->publish(lidar_pose);
 }
 
+// 【深度模式】把地图投影成一张深度图（算法与 CPU 版完全相同）
 void publishPinholeDepth(const rclcpp::Time &stamp) {
+  // 地图还没准备好 → 跳过本次
   if (cloud_all_map.empty()) {
     RCLCPP_WARN_THROTTLE(ros_node->get_logger(), *ros_node->get_clock(), 1000,
                          "No pinhole map cloud yet; skip depth publish.");
@@ -259,6 +302,7 @@ void publishPinholeDepth(const rclcpp::Time &stamp) {
     return;
   }
 
+  // 一张全 0 的浮点深度图
   cv::Mat depth_image(cam_height, cam_width, CV_32FC1, cv::Scalar(0.0f));
 
   const Eigen::Matrix4f world2camera = sensor2world.inverse();
@@ -272,24 +316,29 @@ void publishPinholeDepth(const rclcpp::Time &stamp) {
 
   std::vector<int> indices;
   std::vector<float> distances;
+  // 只取相机附近（射程内）的点
   _kdtreeLocalMap.radiusSearch(search_point, max_depth, indices, distances);
 
+  // 逐个点投影
   for (const int index : indices) {
     const PointType &pt = cloud_all_map.points[index];
     const Eigen::Vector4f pt_world(pt.x, pt.y, pt.z, 1.0f);
     const Eigen::Vector4f pt_camera = world2camera * pt_world;
 
     const double z = pt_camera.z();
+    // 落在相机后方或超出射程 → 丢弃
     if (z <= 1e-3 || z > max_depth) {
       continue;
     }
 
+    // 用针孔模型算出对应的像素坐标
     const int u_center = static_cast<int>(std::round(cam_fx * pt_camera.x() / z + cam_cx));
     const int v_center = static_cast<int>(std::round(cam_fy * pt_camera.y() / z + cam_cy));
     if (u_center < 0 || u_center >= cam_width || v_center < 0 || v_center >= cam_height) {
       continue;
     }
 
+    // 近处的点会覆盖多个像素
     const int splat_radius =
         std::min(4, std::max(0, static_cast<int>(std::ceil(0.5 * cam_fx * downsample_res / z))));
     const int u_min = std::max(0, u_center - splat_radius);
@@ -300,6 +349,7 @@ void publishPinholeDepth(const rclcpp::Time &stamp) {
     for (int v = v_min; v <= v_max; ++v) {
       for (int u = u_min; u <= u_max; ++u) {
         float &depth = depth_image.at<float>(v, u);
+        // 只保留更近的深度，体现遮挡关系
         if (depth <= 0.0f || z < depth) {
           depth = static_cast<float>(z);
         }
@@ -307,6 +357,7 @@ void publishPinholeDepth(const rclcpp::Time &stamp) {
     }
   }
 
+  // 打包成 32 位浮点图像消息并发布
   cv_bridge::CvImage out_msg;
   out_msg.header.stamp = stamp;
   out_msg.header.frame_id = "camera";
@@ -315,6 +366,7 @@ void publishPinholeDepth(const rclcpp::Time &stamp) {
   pinhole_depth_pub_->publish(*out_msg.toImageMsg());
 }
 
+// 生成球壳点云（逻辑与 CPU 版相同）
 pcl::PointCloud<PointType> generate_sphere_cloud(double size) {
   pcl::PointCloud<PointType> sphere_cloud;
   PointType temp_point;
@@ -341,6 +393,7 @@ pcl::PointCloud<PointType> generate_sphere_cloud(double size) {
   return sphere_cloud;
 }
 
+// 生成立方体表面点云（逻辑与 CPU 版相同）
 pcl::PointCloud<PointType> generate_box_cloud(double size) {
   pcl::PointCloud<PointType> box_cloud;
   PointType temp_point;
@@ -431,6 +484,7 @@ pcl::PointCloud<PointType> generate_box_cloud(double size) {
   return box_cloud;
 }
 
+// 按“障碍物类型”生成点云并平移到指定位置
 void generate_ptclouds_by_pos(Eigen::Vector3d obs_pos, int obs_type,
                               pcl::PointCloud<PointType> &obs_cloud,
                               vector<PointType> &obs_points) {
@@ -467,6 +521,7 @@ void generate_ptclouds_by_pos(Eigen::Vector3d obs_pos, int obs_type,
   }
 }
 
+// 更新动态障碍物位置并发布它们的点云（逻辑与 CPU 版相同）
 void dynobjGenerate() {
   if (dynobj_enable == 1) {
     dynobj_points.clear();
@@ -562,6 +617,7 @@ void dynobjGenerate() {
   }
 }
 
+// 收到本机里程计：更新位姿、发布传感器位姿、可选的碰撞自检
 void rcvOdometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr message) {
   /*if(!has_global_map)
     return;*/
@@ -670,6 +726,7 @@ void rcvOdometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr message) 
 }
 
 // decentralize simulation, get other uav odometry and generate point clouds
+// 收到其它无人机的里程计（多机仿真用）
 void multiOdometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg, int drone_id) {
   Eigen::Vector3d uav_pos;
   uav_pos(0) = msg->pose.pose.position.x;
@@ -744,6 +801,7 @@ void multiOdometryCallback(const nav_msgs::msg::Odometry::ConstSharedPtr msg, in
 
 int comp_time_count = 0;
 
+// 收到全局地图：交给 GPU 渲染器，并做碰撞检测相关的准备工作
 void rcvGlobalPointCloudCallBack(const sensor_msgs::msg::PointCloud2::ConstSharedPtr pointcloud_map) {
   if (has_global_map)
     return;
@@ -790,24 +848,29 @@ void rcvGlobalPointCloudCallBack(const sensor_msgs::msg::PointCloud2::ConstShare
   has_global_map = true;
 }
 
+// 【核心】按固定频率渲染一帧传感器数据
 void renderSensedPoints() {
   const auto t1 = std::chrono::steady_clock::now();
 
+  // 数据没到齐 → 这一帧跳过
   if (!has_odom || !has_global_map)
     return;
 
+  // 深度模式：走深度图那条简单路径
   if (useDepthSensor()) {
     publishCameraPose(odom_);
     publishPinholeDepth(rclcpp::Time(odom_.header.stamp));
     return;
   }
 
+  // 取出机体姿态
   Eigen::Quaternionf q;
   q.x() = odom_.pose.pose.orientation.x;
   q.y() = odom_.pose.pose.orientation.y;
   q.z() = odom_.pose.pose.orientation.z;
   q.w() = odom_.pose.pose.orientation.w;
   // add pitchW
+  // 激光俯仰安装角（斜向下扫）
   double theta = lidar_pitch * M_PI / 180.0;
   Eigen::Matrix3f rot_body2lidar;
   rot_body2lidar << cos(theta), 0, sin(theta), 0, 1, 0, -sin(theta), 0, cos(theta);
@@ -820,19 +883,23 @@ void renderSensedPoints() {
   // rot_body2lidar=yawAngle*pitchAngle*rollAngle;
   // rotate lidar end
 
+  // 传感器总旋转 = 机体姿态 × 激光安装角
   const Eigen::Matrix3f rot(q.toRotationMatrix() * rot_body2lidar);
   Eigen::Quaternionf quat(rot);
   // const Eigen::Matrix3f rot(q.toRotationMatrix());
+  // 传感器位置与时间戳
   const Eigen::Vector3f pos(odom_.pose.pose.position.x, odom_.pose.pose.position.y,
                             odom_.pose.pose.position.z);
   const rclcpp::Time time_stamp_(odom_.header.stamp);
 
   const rclcpp::Time t_pattern = ros_node->now();
+  // 距启动过了多久 —— GPU 用它推算激光扫描图案的相位
   double time_frominit = (t_pattern - t_init).seconds();
 
   local_map->points.clear();
   dynamic_input_points.points.clear();
 
+  // 把“其它无人机 + 动态障碍物”的点汇总成一份“动态输入点云”
   for (int i = 0; i < drone_num; i++) {
     if (i == drone_id) {
       continue;
@@ -842,9 +909,11 @@ void renderSensedPoints() {
     }
     // dynamic_input_points = dynamic_input_points + otheruav_points[i];
   }
+  // 加上动态障碍物的点
   dynamic_input_points = dynamic_input_points + dynobj_points_vis;
 
   if (dynamic_input_points.points.size() > 0) {
+    // 给动态点建 KD 树（碰撞检测用）
     kdtree_dyn.setInputCloud(dynamic_input_points.makeShared());
   }
 
@@ -853,15 +922,19 @@ void renderSensedPoints() {
   pcl::toROSMsg(dynamic_input_points, dynamic_input_points_pcd);
   dynamic_input_points_pcd.header.frame_id = "world";
   dynamic_input_points_pcd.header.stamp = ros_node->now();
+  // 发布动态点云
   pub_dyncloud->publish(dynamic_input_points_pcd);
 
   // dynamic_input_points = otheruav_points_vis + dyn_points_vis;
   // ROS_INFO("dynamic_input_points size = %d", dynamic_input_points.size());
+  // 把动态点交给 GPU 渲染器
   render.input_dyn_clouds(dynamic_input_points);
 
+  // 【关键一行】让 GPU 渲染出一帧点云，结果写进 local_map
   render.render_pointcloud(local_map, pos, quat, time_frominit);
 
   const auto t_afterrender = std::chrono::steady_clock::now();
+  // 统计本次渲染耗时并发布（看性能用）
   double comp_time_temp = std::chrono::duration<double>(t_afterrender - t1).count();
   comp_time_vec.push_back(comp_time_temp);
   if (comp_time_count > 20) {
@@ -882,6 +955,7 @@ void renderSensedPoints() {
 
   pcl::PointCloud<PointType> local_map_vis;
   local_map_vis.points.reserve(local_map->points.size());
+  // 过滤掉射程外的点，只保留传感器附近的一圈（可视化更清爽）
   for (const auto &pt : local_map->points) {
     const Eigen::Vector3f pt_vec(pt.x, pt.y, pt.z);
     if ((pt_vec - pos).norm() >= sensing_horizon - 1.0) {
@@ -899,10 +973,12 @@ void renderSensedPoints() {
   local_map_pcd.header = odom_.header;
   local_map_pcd.header.stamp = time_stamp_;
   local_map_pcd.header.frame_id = "world";
+  // 发布渲染结果 —— 规划器订阅的就是这个话题
   pub_cloud->publish(local_map_pcd);
 
   // transform
   std::string sensor_frame_id_ = "sensor";
+  // 广播 world → sensor 的坐标变换
   geometry_msgs::msg::TransformStamped transform;
   transform.header.stamp = time_stamp_;
   transform.header.frame_id = "world";
@@ -918,6 +994,7 @@ void renderSensedPoints() {
 
   tf_broadcaster->sendTransform(transform);
 
+  // 再把点云转到“传感器坐标系”，作为另一路输出
   Eigen::Matrix4f sensor2world;
   sensor2world << rot(0, 0), rot(0, 1), rot(0, 2), pos.x(), rot(1, 0), rot(1, 1), rot(1, 2),
   pos.y(), rot(2, 0), rot(2, 1), rot(2, 2), pos.z(), 0, 0, 0, 1;
@@ -927,6 +1004,7 @@ void renderSensedPoints() {
   // body frame pointcloud
   point_in_sensor.points.clear();
   // pcl::copyPointCloud(local_map_filled, point_in_sensor);
+  // 变换到传感器坐标系
   pcl::transformPointCloud(*local_map, point_in_sensor, world2sensor);
   point_in_sensor.width = point_in_sensor.points.size();
   point_in_sensor.height = 1;
@@ -936,15 +1014,20 @@ void renderSensedPoints() {
   // sensor_map_pcd.header.frame_id = sensor_frame_id_;
   // sensor_map_pcd.header.stamp = time_stamp_;
   // pub_intercloud.publish(sensor_map_pcd);
+  // 发布激光位姿
   publishLidarPose(odom_, time_stamp_, pos, quat);
 }
 
+// 程序入口
 int main(int argc, char **argv) {
   rclcpp::init(argc, argv);
+  // 创建节点，名字固定为 opengl_render_node
   ros_node = std::make_shared<rclcpp::Node>("opengl_render_node");
+  // 告诉渲染器：着色器文件安装在包的 share/shaders 目录下
   render.setShaderDirectory(
       ament_index_cpp::get_package_share_directory("local_sensing_node") + "/shaders");
 
+  // 读取参数（与 CPU 版基本一致）
   quad_name = ros_node->declare_parameter<std::string>("quadrotor_name", "quad_0");
   sensor_type_ = ros_node->declare_parameter<std::string>("sensor_type", "depth");
   if (!useDepthSensor() && !useLidarSensor()) {
@@ -990,6 +1073,7 @@ int main(int argc, char **argv) {
   collisioncheck_enable = ros_node->declare_parameter<int>("collision_check.enable", 0);
   collision_range = ros_node->declare_parameter<double>("collision_check.range", 0.3);
   output_pcd = ros_node->declare_parameter<int>("output_pcd", 0);
+  // 地图来源开关 与 PCD 文件名
   use_global_map_topic = ros_node->declare_parameter<bool>("use_global_map_topic", false);
   file_name = ros_node->declare_parameter<std::string>("pcd_map_file", "");
   x_size = ros_node->declare_parameter<double>("map.x_size", 100.0);
@@ -998,12 +1082,14 @@ int main(int argc, char **argv) {
   resolution = ros_node->declare_parameter<double>("map.resolution", 0.1);
 
   // subscribe other uav pos
+  // 多机参数
   drone_num = ros_node->declare_parameter<int>("uav_num", 1);
   drone_id = ros_node->declare_parameter<int>("drone_id", 0);
   other_uav_pos.resize(drone_num);
   other_uav_rcv_time.resize(drone_num);
   otheruav_points.resize(drone_num);
   otheruav_pointsindex.resize(drone_num);
+  // 给除自己以外的每台无人机订阅 /quad_i/body_pose
   for (int i = 0; i < drone_num; i++) {
     if (i == drone_id) {
       continue;
@@ -1017,6 +1103,7 @@ int main(int argc, char **argv) {
         [i](nav_msgs::msg::Odometry::ConstSharedPtr msg) { multiOdometryCallback(msg, i); }));
   }
 
+  // 可选：加载无人机模型文件并下采样
   pcl::VoxelGrid<PointType> sor;
   int pcd_read_status;
   if (use_uav_extra_model) {
@@ -1037,6 +1124,7 @@ int main(int argc, char **argv) {
     sor.filter(uav_extra_model);
   }
 
+  // 无人机包围盒尺寸（用于生成简化模型）
   uav_size[0] = 0.4;
   uav_size[1] = 0.4;
   uav_size[2] = 0.3;
@@ -1048,6 +1136,7 @@ int main(int argc, char **argv) {
               drone_drawpoints_num[1], drone_drawpoints_num[2], uav_points_num);
 
   // render.setParameters(400,400,250,250,downsample_res,0.1,sensing_horizon,sensing_rate,use_avia_pattern);
+  // 计算渲染图像的像素尺寸：水平方向 = 视场 ÷ 角分辨率
   int image_width;
   int image_height;
   if (is_360lidar) {
@@ -1056,14 +1145,17 @@ int main(int argc, char **argv) {
     image_width = ceil(yaw_fov / polar_resolution);
   }
   image_height = ceil(vertical_fov / polar_resolution);
+  // 【关键】把所有渲染参数一次性交给 GPU 渲染器
   render.setParameters(image_width, image_height, 250, 250, downsample_res, polar_resolution,
                        yaw_fov, vertical_fov, 0.1, sensing_horizon, sensing_rate, use_avia_pattern,
                        use_os128_pattern, use_minicf_pattern);
 
+  // 地图来源一：订阅 global_map 话题（用 transient_local QoS）
   if (use_global_map_topic) {
     const auto map_qos = rclcpp::QoS(1).reliable().transient_local();
     global_map_sub = ros_node->create_subscription<sensor_msgs::msg::PointCloud2>(
         "global_map", map_qos, rcvGlobalPointCloudCallBack);
+  // 地图来源二：直接从 PCD 文件读取
   } else {
     if (file_name.empty()) {
       RCLCPP_ERROR(ros_node->get_logger(),
@@ -1082,6 +1174,7 @@ int main(int argc, char **argv) {
   // home/dji/kong_ws/src/Exploration_sim/uav_simulator/map_generator/resource/Knowles_merge_01cutoff.pcd
   // /home/dji/meshmap/Knowles_local_sor_001.pcd
 
+  // 如果开了碰撞检测：确认地图可用，并准备无人机模型的哈希表
   if (collisioncheck_enable) {
     if (cloud_all_map.empty()) {
       if (file_name.empty() || !loadPinholeMapFromFile(file_name)) {
@@ -1097,6 +1190,7 @@ int main(int argc, char **argv) {
 
     RCLCPP_INFO(ros_node->get_logger(), "Global map and kdtree ready.");
 
+    // 把无人机模型的点塞进体素哈希表，方便快速判断是否与模型碰撞
     if (use_uav_extra_model) {
       // get max and min xyz of uav model
       pcl::getMinMax3D(uav_extra_model, uav_modelmin, uav_modelmax);
@@ -1119,6 +1213,7 @@ int main(int argc, char **argv) {
     }
   }
 
+  // 动态障碍物：随机初始化它们的位置、类型、运动方向
   if (dynobj_enable == 1) {
     if (!collisioncheck_enable && cloud_all_map.empty()) {
       if (file_name.empty() || !loadPinholeMapFromFile(file_name)) {
@@ -1175,12 +1270,14 @@ int main(int argc, char **argv) {
 
   // subscribe point cloud
   const auto body_pose_topic = ros_node->declare_parameter<std::string>("body_pose_topic", "body_pose");
+  // 订阅本机里程计
   odom_sub = ros_node->create_subscription<nav_msgs::msg::Odometry>(
       body_pose_topic, rclcpp::SensorDataQoS(), rcvOdometryCallback);
 
   // publishers
   //   pub_dyncloud = nh.advertise<sensor_msgs::PointCloud2>("/pcl_render_node/dyn_cloud", 10);
   // pub_intercloud = nh.advertise<sensor_msgs::PointCloud2>("/pcl_render_node/explored_cloud", 10);
+  // 创建发布器（比 CPU 版多一个 collision_cloud）
   pub_dyncloud = ros_node->create_publisher<sensor_msgs::msg::PointCloud2>("dyn_cloud", rclcpp::SensorDataQoS());
   if (useDepthSensor()) {
     camera_pose_pub_ = ros_node->create_publisher<nav_msgs::msg::Odometry>(quadTopic("camera_pose"), rclcpp::SensorDataQoS());
@@ -1193,21 +1290,25 @@ int main(int argc, char **argv) {
   pub_uavcloud = ros_node->create_publisher<sensor_msgs::msg::PointCloud2>("uav_cloud", rclcpp::SensorDataQoS());
   comp_time_pub = ros_node->create_publisher<geometry_msgs::msg::PoseStamped>("simulator_compute_time", 10);
   pub_collisioncloud = ros_node->create_publisher<sensor_msgs::msg::PointCloud2>("collision_cloud", rclcpp::SensorDataQoS());
+  // 渲染周期 = 1 ÷ 传感频率
   double sensing_duration = 1.0 / sensing_rate;
 
   t_init = ros_node->now();
   tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(ros_node);
 
+  // 两个定时器：一个渲染传感器数据，一个更新动态障碍物
   local_sensing_timer = ros_node->create_wall_timer(
       std::chrono::duration<double>(sensing_duration), renderSensedPoints);
   dynobj_timer = ros_node->create_wall_timer(
       std::chrono::duration<double>(sensing_duration), dynobjGenerate);
 
+  // 传感器 → 机体的安装矩阵
   sensor2body << 0.0, 0.0, 1.0, 0.0,
       -1.0, 0.0, 0.0, 0.0,
       0.0, -1.0, 0.0, 0.0,
       0.0, 0.0, 0.0, 1.0;
 
+  // 单线程执行器，一直运行
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(ros_node);
   executor.spin();
