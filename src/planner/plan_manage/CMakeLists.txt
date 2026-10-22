@@ -74,15 +74,46 @@ install(TARGETS
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
 install(FILES launch/default.rviz DESTINATION share/${PROJECT_NAME}/rviz OPTIONAL)
-install(PROGRAMS scripts/keypoint_recorder.py
+install(PROGRAMS
+  scripts/keypoint_recorder.py
+  scripts/reference_path_publisher.py
   DESTINATION lib/${PROJECT_NAME} OPTIONAL)
 
 # 如果开启测试（colcon test），就注册两个“启动测试”。
 # 它们只检查程序能不能正常启动，不检查规划结果对不对。
+# 下面另外还有参考路径/参考坐标系相关的单元测试与启动测试。
 if(BUILD_TESTING)
   find_package(launch_testing_ament_cmake REQUIRED)
   add_launch_test(test/test_planner_startup.py TIMEOUT 30)
   add_launch_test(test/test_waypoint_parameters.py TIMEOUT 30)
+
+  # ---- 参考路径 / 参考坐标系相关的测试 ----
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+
+  # 两个 C++ 单测：直接测纯函数，不需要起节点
+  ament_add_gtest(test_reference_path_utils test/test_reference_path_utils.cpp)
+  target_include_directories(test_reference_path_utils PRIVATE include)
+  ament_target_dependencies(test_reference_path_utils geometry_msgs nav_msgs tf2_geometry_msgs)
+  target_link_libraries(test_reference_path_utils Eigen3::Eigen)
+  ament_add_gtest(test_reference_frame_utils test/test_reference_frame_utils.cpp)
+  target_include_directories(test_reference_frame_utils PRIVATE include)
+  ament_target_dependencies(test_reference_frame_utils geometry_msgs)
+  target_link_libraries(test_reference_frame_utils Eigen3::Eigen)
+
+  # Python 单测临时关掉 pytest 插件自动加载，避免环境里的第三方插件干扰
+  set(_pytest_disable_plugin_autoload "$ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD}")
+  set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "1")
+  ament_add_pytest_test(
+    test_reference_path_publisher_unit
+    test/test_reference_path_publisher_unit.py
+    PYTHON_EXECUTABLE /usr/bin/python3
+    ENV PYTEST_DISABLE_PLUGIN_AUTOLOAD=1)
+  set(ENV{PYTEST_DISABLE_PLUGIN_AUTOLOAD} "${_pytest_disable_plugin_autoload}")
+
+  # 两个启动测试：把发布器 / 规划器真正起起来，验证动态 TF 下的行为
+  add_launch_test(test/test_reference_path_publisher_launch.py TIMEOUT 30)
+  add_launch_test(test/test_dynamic_reference_tf_launch.py TIMEOUT 35)
 endif()
 
 ament_package()
