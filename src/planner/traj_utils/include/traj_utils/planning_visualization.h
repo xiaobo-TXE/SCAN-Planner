@@ -49,16 +49,20 @@ namespace scan_planner
     typedef std::shared_ptr<PlanningVisualization> Ptr;
 
     // ---------- 下面是各种“画图”接口（详见 .cpp） ----------
+    // frame_id：这批 Marker 要挂在哪个坐标系下显示。默认 world；
+    // navi_mode=3 时会传参考坐标系（比如 map），这样路径才会画在正确的位置上。
     void displayMarkerList(const MarkerPublisher::SharedPtr &pub, const vector<Eigen::Vector3d> &list, double scale,
-                           Eigen::Vector4d color, int id);
+                           Eigen::Vector4d color, int id, const std::string &frame_id = "world");
     void generatePathDisplayArray(visualization_msgs::msg::MarkerArray &array,
                                   const vector<Eigen::Vector3d> &list, double scale, Eigen::Vector4d color, int id);
     void generateArrowDisplayArray(visualization_msgs::msg::MarkerArray &array,
                                    const vector<Eigen::Vector3d> &list, double scale, Eigen::Vector4d color, int id);
     // 画一个目标点（白色小球）
-    void displayGoalPoint(Eigen::Vector3d goal_point, Eigen::Vector4d color, const double scale, int id);
+    void displayGoalPoint(Eigen::Vector3d goal_point, Eigen::Vector4d color, const double scale, int id,
+                          const std::string &frame_id = "world");
     // 画全局参考路径（青色）
-    void displayGlobalPathList(vector<Eigen::Vector3d> global_pts, const double scale, int id);
+    void displayGlobalPathList(vector<Eigen::Vector3d> global_pts, const double scale, int id,
+                               const std::string &frame_id = "world");
     // 画优化前的初始路径（蓝色）
     void displayInitPathList(vector<Eigen::Vector3d> init_pts, const double scale, int id);
     void displayOptimalList(Eigen::MatrixXd optimal_pts, int id);
