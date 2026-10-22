@@ -213,7 +213,9 @@ def _setup(context):
                 parameters=[reference_path_file, common],
                 remappings=[
                     ("body_pose", body_pose),
-                    ("initial_path", "/initial_path"),
+                    # 必须发到规划器实际订阅的全局路径话题上，否则这条示例
+                    # 路径没人接收（规划器侧映射的是 /global_path）。
+                    ("initial_path", "/global_path"),
                 ],
             )
         )
