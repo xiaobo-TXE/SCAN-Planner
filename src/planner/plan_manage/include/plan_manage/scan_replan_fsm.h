@@ -35,6 +35,7 @@
 #define _SCAN_REPLAN_FSM_H_
 
 #include <Eigen/Eigen>
+#include <Eigen/Geometry>
 #include <algorithm>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <iostream>
@@ -42,6 +43,8 @@
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 #include <vector>
 #include <visualization_msgs/msg/marker.hpp>
 
@@ -106,6 +109,9 @@ namespace scan_planner
     double self_double_cylinder_radius_, self_double_cylinder_offset_;
     double body_height_;
     std::string self_inflation_frame_id_;
+    std::string reference_frame_id_;
+    double reference_tf_max_age_{0.3}, reference_tf_grace_{0.5};
+    double reference_tf_jump_translation_{0.2}, reference_tf_jump_yaw_{5.0 * 3.14159265358979323846 / 180.0};
 
     // ---------- 运行时数据（程序自己维护的状态） ----------
     /* planning data */
@@ -126,6 +132,14 @@ namespace scan_planner
     Eigen::Vector3d init_pt_, start_pt_, start_vel_, start_acc_, start_yaw_; // start state
     Eigen::Vector3d end_pt_, end_vel_;                                       // goal state
     Eigen::Vector3d local_target_pt_, local_target_vel_;                     // local target state
+    Eigen::Vector3d reference_end_pt_{Eigen::Vector3d::Zero()};
+    Eigen::Isometry3d planning_reference_to_world_{Eigen::Isometry3d::Identity()};
+    Eigen::Isometry3d last_reference_to_world_{Eigen::Isometry3d::Identity()};
+    bool have_last_reference_transform_{false};
+    bool reference_tf_stop_{false};
+    bool reference_tf_jump_failed_{false};
+    bool reference_jump_replan_{false};
+    rclcpp::Time reference_tf_missing_since_{0, 0, RCL_ROS_TIME};
     std::vector<Eigen::Vector3d> active_waypoints_;
     int current_wp_;
 
@@ -133,6 +147,9 @@ namespace scan_planner
 
     /* ROS utils */
     rclcpp::Node *node_{nullptr};
+    // TF 缓冲与监听器：用来查询“参考坐标系 → world”的变换（navi_mode=3 用）
+    std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
     // 两个定时器：exec_timer_ 每 10ms 驱动状态机；safety_timer_ 每 50ms 查碰撞
     rclcpp::TimerBase::SharedPtr exec_timer_, safety_timer_;
     rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
@@ -140,6 +157,7 @@ namespace scan_planner
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr go2_execution_frozen_sub_;
     rclcpp::Publisher<scan_planner_msgs::msg::Bspline>::SharedPtr bspline_pub_;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
     rclcpp::Publisher<scan_planner_msgs::msg::DataDisp>::SharedPtr data_disp_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr self_inflation_pub_;
 
@@ -162,10 +180,15 @@ namespace scan_planner
     bool isWaypointSequenceMode() const;
     bool adjustGlobalTargetIfOccupied();
     // 从全局轨迹上取“前方 planning_horizon 米处”的点，作为局部目标
-    void getLocalTarget();
+    bool getLocalTarget();
+    // 查询“参考坐标系 → world”的变换；查不到（超时等）时返回 false
+    bool lookupReferenceTransform(Eigen::Isometry3d &reference_to_world);
+    // 监控参考 TF 的新鲜度与跳变；返回 true 表示当前应停止推进
+    bool monitorReferenceTransform();
     void finishProcess();
     // 发布机器人自身外形（前后两个圆柱），在 RViz 里看得到
     void publishSelfInflationMarker();
+    void publishLocalPath(const UniformBspline &trajectory);
     double getOdomYaw() const;
     double estimateYawFromSegment(const Eigen::Vector3d &from, const Eigen::Vector3d &to) const;
     void updateLocalTrajTimeFreeze();
