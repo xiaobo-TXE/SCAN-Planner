@@ -31,6 +31,18 @@ scan_planner_node:
     # 连续规划失败超过这个次数，就强制进入紧急停止
     fsm.max_replan_fail_count: 1000
 
+    # 下面四项只在 navi_mode=3（参考路径）下生效，用来判断"参考坐标系"是否还可信。
+    # 参考路径写在地图系/参考系下，规划时要靠 TF 把它换算到 world 系；
+    # TF 一旦长时间拿不到、或突然跳变，就必须停下来重新规划。
+    # 允许的最大 TF 年龄(秒)：比这更旧的变换认为不可用
+    fsm.reference_tf_max_age: 0.3
+    # 宽限时间(秒)：TF 连续拿不到超过这么久，就急停
+    fsm.reference_tf_grace: 0.5
+    # 判定"参考系跳变"的平移阈值(米)
+    fsm.reference_tf_jump_translation: 0.2
+    # 判定"参考系跳变"的偏航阈值(度)
+    fsm.reference_tf_jump_yaw_deg: 5.0
+
     # 地图分辨率(米/格)：越小越精细，但越占内存、越慢。0.05 = 每格 5 厘米
     grid_map.resolution: 0.05
     # 局部地图的尺寸(米)：10 x 10 x 5 的一个“滑动盒子”，会跟着机器人一起移动

@@ -18,8 +18,13 @@
 //   4) 其余辅助函数            —— 用到时再查
 // ============================================================================
 #include <plan_manage/scan_replan_fsm.h>
+#include <plan_manage/reference_path_utils.h>
+#include <plan_manage/reference_frame_utils.h>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
+#include <tf2/time.hpp>
+#include <tf2/exceptions.hpp>
 
 namespace
 {
@@ -50,6 +55,9 @@ namespace scan_planner
   {
     // ---------- 第1步：把所有内部状态重置为初始值 ----------
     node_ = node;
+    // TF 缓冲与监听器：navi_mode=3 需要把参考坐标系下的路径换算到 world 系
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node_->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     // 航点下标从 0 开始；状态机初始状态是 INIT
     current_wp_ = 0;
     exec_state_ = FSM_EXEC_STATE::INIT;
@@ -92,6 +100,13 @@ namespace scan_planner
     self_double_cylinder_offset_ = load_parameter<double>(node_, "grid_map.double_cylinder_offset", 0.0);
     body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.4);
     self_inflation_frame_id_ = load_parameter<std::string>(node_, "grid_map.frame_id", "world");
+    reference_tf_max_age_ = load_parameter<double>(node_, "fsm.reference_tf_max_age", 0.3);
+    reference_tf_grace_ = load_parameter<double>(node_, "fsm.reference_tf_grace", 0.5);
+    reference_tf_jump_translation_ = load_parameter<double>(node_, "fsm.reference_tf_jump_translation", 0.2);
+    reference_tf_jump_yaw_ = load_parameter<double>(node_, "fsm.reference_tf_jump_yaw_deg", 5.0) * M_PI / 180.0;
+    if (reference_tf_max_age_ <= 0.0 || reference_tf_grace_ <= 0.0 ||
+        reference_tf_jump_translation_ <= 0.0 || reference_tf_jump_yaw_ <= 0.0)
+      throw std::runtime_error("reference TF limits must be positive");
 
     // ---------- 第3步：预设航点模式下，解析航点数组 ----------
     if (navi_mode_ == NAVI_MODE::PRESET_TARGET)
@@ -140,6 +155,8 @@ namespace scan_planner
 
     // ---------- 第7步：创建发布器 ----------
     bspline_pub_ = node_->create_publisher<scan_planner_msgs::msg::Bspline>("planning/bspline", 10);
+    // 把当前局部轨迹也以 Path 形式发出来（navi_mode=3 用来观察参考路径跟随效果）
+    local_path_pub_ = node_->create_publisher<nav_msgs::msg::Path>("local_path", 10);
     // 发布规划出的轨迹（控制器订阅它来跟踪）
     data_disp_pub_ = node_->create_publisher<scan_planner_msgs::msg::DataDisp>("planning/data_display", 100);
     // 发布调试数据（给 RViz 显示）
@@ -295,28 +312,31 @@ namespace scan_planner
   // 根据一串航点，让规划总管生成一条全局参考轨迹。
   bool SCANReplanFSM::planGlobalTrajByWaypoints(const std::vector<Eigen::Vector3d> &waypoints)
   {
-    // 没有航点 → 直接返回失败
-    if (waypoints.empty())
+    // 参考路径至少要有两个点（第一个点当起点，最后一个点当终点）
+    if (waypoints.size() < 2)
     {
-      RCLCPP_WARN(node_->get_logger(), "No waypoint supplied for global trajectory");
+      RCLCPP_WARN(node_->get_logger(), "Reference path requires at least two points");
       return false;
     }
 
-    // 终点 = 最后一个航点
-    end_pt_ = waypoints.back();
+    // 终点记在参考坐标系下，真正规划时再乘上“参考系 → world”的变换
+    reference_end_pt_ = waypoints.back();
+    // 第一个点作为起点，其余点作为中间航点
+    std::vector<Eigen::Vector3d> reference_waypoints(waypoints.begin() + 1, waypoints.end());
 
     // 把每个航点都画出来
     for (size_t i = 0; i < waypoints.size(); i++)
     {
-      visualization_->displayGoalPoint(waypoints[i], Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, i);
+      visualization_->displayGoalPoint(waypoints[i], Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, i,
+                                       reference_frame_id_);
     }
 
     // 让规划总管用这些航点生成全局参考轨迹
     bool success = planner_manager_->planGlobalTrajWaypoints(
-        odom_pos_,
-        odom_vel_,
+        waypoints.front(),
         Eigen::Vector3d::Zero(),
-        waypoints,
+        Eigen::Vector3d::Zero(),
+        reference_waypoints,
         Eigen::Vector3d::Zero(),
         Eigen::Vector3d::Zero());
 
@@ -326,10 +346,6 @@ namespace scan_planner
       RCLCPP_ERROR(node_->get_logger(), "Unable to generate global trajectory from waypoints");
       return false;
     }
-
-    // 检查终点是否被障碍占据
-    if (!adjustGlobalTargetIfOccupied())
-      return false;
 
     // 采样全局轨迹（每 0.1 秒一个点）用于显示
     constexpr double step_size_t = 0.1;
@@ -344,9 +360,10 @@ namespace scan_planner
     end_vel_.setZero();
     have_target_ = true;
     have_new_target_ = true;
-    // 显示全局路径与终点
-    visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
-    visualization_->displayGoalPoint(end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3, static_cast<int>(waypoints.size()) - 1);
+    // 显示全局路径与终点（都要指定参考坐标系，否则 RViz 里会画错位置）
+    visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0, reference_frame_id_);
+    visualization_->displayGoalPoint(reference_end_pt_, Eigen::Vector4d(0, 0.5, 0.5, 1), 0.3,
+                                     static_cast<int>(waypoints.size()) - 1, reference_frame_id_);
 
     // 成功
     return true;
@@ -488,29 +505,56 @@ namespace scan_planner
       return;
     }
 
-    // 收到参考路径即视为触发
-    trigger_ = true;
+    // 收到参考路径先做三项校验：必须有里程计、必须带坐标系、各点坐标系要一致
+    if (!have_odom_)
+    {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                           "No odometry yet; ignoring initial_path");
+      return;
+    }
+
+    if (msg->header.frame_id.empty())
+    {
+      RCLCPP_WARN(node_->get_logger(), "Ignoring initial_path with an empty frame_id");
+      return;
+    }
+    for (const auto &pose : msg->poses)
+    {
+      if (!pose.header.frame_id.empty() && pose.header.frame_id != msg->header.frame_id)
+      {
+        RCLCPP_WARN(node_->get_logger(), "Ignoring initial_path with mixed pose frames");
+        return;
+      }
+    }
 
     // 把路径上每个点转成三维航点
     std::vector<Eigen::Vector3d> waypoints;
-    waypoints.reserve(msg->poses.size());
-
-    // 逐个转换
-    for (const auto& pose_stamped : msg->poses)
+    // 把路径上的点统一换算成 world 系下的三维航点（内部会补上 body_height_，因为外部给的是地面高度）
+    std::string path_error;
+    if (!prepareReferenceWaypoints(*msg, body_height_, 0.5, waypoints, &path_error))
     {
-      Eigen::Vector3d wp;
-      wp(0) = pose_stamped.pose.position.x;
-      wp(1) = pose_stamped.pose.position.y;
-      // 高度要额外抬高 body_height_（外部给的是地面高度）
-      wp(2) = pose_stamped.pose.position.z + body_height_; // Adjust for body height
-      waypoints.push_back(wp);
+      RCLCPP_WARN(node_->get_logger(), "Ignoring initial_path: %s", path_error.c_str());
+      return;
     }
+
+    // 记住这条参考路径的坐标系，并清掉上一轮的 TF 状态
+    reference_frame_id_ = msg->header.frame_id;
+    have_last_reference_transform_ = false;
+    reference_jump_replan_ = false;
+    // 收到参考路径即视为触发
+    trigger_ = true;
     // 用这些航点生成全局轨迹
     bool success = planGlobalTrajByWaypoints(waypoints);
 
     // 成功 → 按当前状态切到“生成新轨迹”或“重新规划”
     if (success)
     {
+      if (reference_tf_jump_failed_)
+      {
+        reference_tf_jump_failed_ = false;
+        reference_tf_stop_ = false;
+        changeFSMExecState(GEN_NEW_TRAJ, "NEW_PATH");
+      }
       /*** FSM ***/
       if (exec_state_ == WAIT_TARGET)
       {
@@ -737,6 +781,8 @@ namespace scan_planner
   {
     // 第一步：处理“冻结”（底盘原地转向时暂停轨迹时钟）
     updateLocalTrajTimeFreeze();
+    if (!monitorReferenceTransform())
+      return;
 
     // 下面几行：每 100 次（约 1 秒）打印一次当前状态
     static int fsm_num = 0;
@@ -826,8 +872,19 @@ namespace scan_planner
       else
       // 失败 → 失败计数 +1，留在本状态下轮重试
       {
+        if (navi_mode_ == NAVI_MODE::REFERENCE_PATH && reference_jump_replan_)
+        {
+          reference_tf_stop_ = true;
+          reference_tf_jump_failed_ = true;
+          callEmergencyStop(odom_pos_);
+          flag_escape_emergency_ = false;
+          changeFSMExecState(EMERGENCY_STOP, "TF_JUMP_FAIL");
+        }
+        else
+      {
         replan_fail_count_++;
         changeFSMExecState(GEN_NEW_TRAJ, "FSM");
+      }
       }
       break;
     }
@@ -836,19 +893,43 @@ namespace scan_planner
     // ---- 状态 REPLAN_TRAJ：重新规划 ----
     case REPLAN_TRAJ:
     {
-
-      // 从当前轨迹出发重新规划
-      if (planFromCurrentTraj())
+      // 从当前轨迹出发重新规划；若是参考系跳变触发的重规划，
+      // 则以当前实测状态为起点（旧轨迹的预测状态已失效）
+      bool success;
+      if (navi_mode_ == NAVI_MODE::REFERENCE_PATH && reference_jump_replan_)
       {
+        // 定位修正后旧轨迹的预测状态已失效，改从实测状态起算
+        start_pt_ = odom_pos_;
+        start_vel_ = odom_vel_;
+        start_acc_.setZero();
+        success = callReboundReplan(true, false);
+      }
+      else
+        success = planFromCurrentTraj();
+      if (success)
+      {
+        reference_jump_replan_ = false;
         // 成功 → 进入执行状态
         replan_fail_count_ = 0;
         changeFSMExecState(EXEC_TRAJ, "FSM");
       }
       else
       {
+        // 参考系跳变导致的重规划失败 → 直接急停，避免继续跑在失效轨迹上
+        if (navi_mode_ == NAVI_MODE::REFERENCE_PATH && reference_jump_replan_)
+        {
+          reference_tf_stop_ = true;
+          reference_tf_jump_failed_ = true;
+          callEmergencyStop(odom_pos_);
+          flag_escape_emergency_ = false;
+          changeFSMExecState(EMERGENCY_STOP, "TF_JUMP_FAIL");
+        }
+        else
+      {
         // 失败 → 计数 +1，保持重规划状态继续尝试
         replan_fail_count_++;
         changeFSMExecState(REPLAN_TRAJ, "FSM");
+      }
       }
 
       break;
@@ -948,6 +1029,17 @@ namespace scan_planner
     // ---- 状态 EMERGENCY_STOP：紧急停止 ----
     case EMERGENCY_STOP:
     {
+      if (reference_tf_stop_)
+      {
+        if (!reference_tf_jump_failed_ && odom_vel_.norm() < 0.1)
+        {
+          reference_tf_stop_ = false;
+          reference_jump_replan_ = false;
+          have_new_target_ = true;
+          changeFSMExecState(GEN_NEW_TRAJ, "TF_RECOVERED");
+        }
+        break;
+      }
 
       // 刚进入急停：先把轨迹收缩成“停在原地”（只做一次）
       if (flag_escape_emergency_) // Avoiding repeated calls
@@ -1017,6 +1109,29 @@ namespace scan_planner
     t_cur = std::min(std::max(t_cur, 0.0), info->duration_);
 
     //cout << "info->velocity_traj_=" << info->velocity_traj_.get_control_points() << endl;
+
+    // 参考路径模式下，重规划起点取“当前轨迹上此刻的位置”，
+    // 这样参考系变动时不会因为里程计跳变而抖
+    if (navi_mode_ == NAVI_MODE::REFERENCE_PATH)
+    {
+      start_pt_ = info->position_traj_.evaluateDeBoorT(t_cur);
+      start_vel_ = info->velocity_traj_.evaluateDeBoorT(t_cur);
+      start_acc_ = info->acceleration_traj_.evaluateDeBoorT(t_cur);
+
+      bool success = callReboundReplan(false, false);
+      if (!success)
+      {
+        success = callReboundReplan(true, false);
+        if (!success)
+        {
+          success = callReboundReplan(true, true);
+          if (!success)
+            return false;
+        }
+      }
+
+      return true;
+    }
 
     // 起点 = 机器人当前位置
     start_pt_ = odom_pos_;
@@ -1118,6 +1233,9 @@ namespace scan_planner
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
 
+    // 参考 TF 已判定异常并急停过 → 不再做碰撞检查
+    if (reference_tf_stop_)
+      return;
     // 正在等待目标、或轨迹还没开始 → 不需要检查
     if (exec_state_ == WAIT_TARGET || info->start_time_.seconds() < 1e-5)
       return;
@@ -1143,6 +1261,16 @@ namespace scan_planner
       // 问地图：机器人以这个朝向待在这里，会不会撞？
       if (map->getInflateOccupancy(pos, estimateYawFromSegment(pos, pos_next)))
       {
+        // 参考 TF 缺失期间又检测到碰撞 → 直接急停（此时无法确认参考路径是否仍安全）
+        if (navi_mode_ == NAVI_MODE::REFERENCE_PATH &&
+            reference_tf_missing_since_.nanoseconds() != 0)
+        {
+          reference_tf_stop_ = true;
+          callEmergencyStop(odom_pos_);
+          flag_escape_emergency_ = false;
+          changeFSMExecState(EMERGENCY_STOP, "TF_MISSING_COLLISION");
+          return;
+        }
         // 撞了！先尝试“从当前轨迹出发重新规划”（也许还来得及绕开）
         if (planFromCurrentTraj()) // Make a chance
         {
@@ -1179,9 +1307,10 @@ namespace scan_planner
   // flag_randomPolyTraj：是否在初始猜测里插一个随机点（用来跳出卡死）。
   bool SCANReplanFSM::callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj)
   {
-
-    // 第一步：从全局轨迹上取“前方 planning_horizon 处”的点作为局部目标
-    getLocalTarget();
+    // 第一步：从全局轨迹上取“前方 planning_horizon 处”的点作为局部目标；
+    // 参考路径模式下若拿不到参考系变换会返回 false，本轮规划直接放弃
+    if (!getLocalTarget())
+      return false;
 
     // 第二步：让规划总管真正规划一条局部轨迹
     bool plan_success =
@@ -1195,6 +1324,11 @@ namespace scan_planner
     // ---- 成功：把轨迹打包成消息发布出去 ----
     if (plan_success)
     {
+      if (navi_mode_ == NAVI_MODE::REFERENCE_PATH)
+      {
+        last_reference_to_world_ = planning_reference_to_world_;
+        have_last_reference_transform_ = true;
+      }
 
       // 取出刚算好的局部轨迹
       auto info = &planner_manager_->local_data_;
@@ -1231,12 +1365,43 @@ namespace scan_planner
 
       // 发布轨迹 —— 控制器订阅 planning/bspline，会开始跟踪它
       bspline_pub_->publish(bspline);
+      publishLocalPath(info->position_traj_);
 
       // 顺便在 RViz 里画出这条最优轨迹
       visualization_->displayOptimalTraj(info->position_traj_, 0);
     }
 
     return plan_success;
+  }
+
+  // 把当前局部轨迹按固定间隔采样成 Path 发到 local_path 话题（供外部观察 / 录制）
+  void SCANReplanFSM::publishLocalPath(const UniformBspline &trajectory)
+  {
+    UniformBspline traj = trajectory;
+    nav_msgs::msg::Path path;
+    path.header.stamp = node_->now();
+    path.header.frame_id = self_inflation_frame_id_.empty() ? "world" : self_inflation_frame_id_;
+
+    const double duration = traj.getTimeSum();
+    const double sample_dt = duration > 0.0 ? std::max(0.01, std::min(0.05, duration / 200.0)) : 0.01;
+
+    for (double t = 0.0; t <= duration + 1e-6; t += sample_dt)
+    {
+      const auto pos = traj.evaluateDeBoorT(std::min(t, duration));
+      geometry_msgs::msg::PoseStamped pose;
+      pose.header.frame_id = path.header.frame_id;
+      pose.header.stamp = path.header.stamp;
+      pose.pose.position.x = pos.x();
+      pose.pose.position.y = pos.y();
+      pose.pose.position.z = pos.z();
+      pose.pose.orientation.w = 1.0;
+      pose.pose.orientation.x = 0.0;
+      pose.pose.orientation.y = 0.0;
+      pose.pose.orientation.z = 0.0;
+      path.poses.push_back(pose);
+    }
+
+    local_path_pub_->publish(path);
   }
 
   // 紧急停止：让总管生成一条“停在 stop_pos”的轨迹，并发布出去。
@@ -1275,66 +1440,152 @@ namespace scan_planner
 
     // 发布 —— 控制器收到后会立刻刹停
     bspline_pub_->publish(bspline);
+    publishLocalPath(info->position_traj_);
 
+    return true;
+  }
+
+  // 查询“参考坐标系 → world 系”的变换。
+  // 参考系与 world 系相同时直接返回单位变换；TF 查不到、或数据太旧，都算失败。
+  bool SCANReplanFSM::lookupReferenceTransform(Eigen::Isometry3d &reference_to_world)
+  {
+    reference_to_world.setIdentity();
+    if (reference_frame_id_ == self_inflation_frame_id_)
+      return true;
+    if (reference_frame_id_.empty())
+      return false;
+    try
+    {
+      const auto transform = tf_buffer_->lookupTransform(
+          self_inflation_frame_id_, reference_frame_id_, tf2::TimePointZero);
+      // 变换的“新鲜度”：太旧的 TF 不可信，当成拿不到
+      const double age = (node_->now() - rclcpp::Time(
+          transform.header.stamp, node_->get_clock()->get_clock_type())).seconds();
+      if (!referenceTransformFresh(age, reference_tf_max_age_))
+        return false;
+      reference_to_world = referenceToWorld(transform);
+      return true;
+    }
+    catch (const tf2::TransformException &error)
+    {
+      RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
+                           "Reference TF unavailable: %s", error.what());
+      return false;
+    }
+  }
+
+  // 监控参考坐标系：长时间拿不到就急停；若发生明显跳变（定位修正），
+  // 就把当前轨迹作废并触发重规划。返回 true 表示参考系正常。
+  bool SCANReplanFSM::monitorReferenceTransform()
+  {
+    if (navi_mode_ != NAVI_MODE::REFERENCE_PATH || !have_target_)
+      return true;
+
+    Eigen::Isometry3d current;
+    if (!lookupReferenceTransform(current))
+    {
+      // 记下“从什么时候开始拿不到”；超过宽限时间就急停
+      const rclcpp::Time now = node_->now();
+      if (reference_tf_missing_since_.nanoseconds() == 0)
+        reference_tf_missing_since_ = now;
+      if (referenceTfGraceExpired((now - reference_tf_missing_since_).seconds(),
+                                  reference_tf_grace_) &&
+          !reference_tf_stop_)
+      {
+        RCLCPP_ERROR(node_->get_logger(), "Reference TF missing for %.2f s; stopping",
+                     reference_tf_grace_);
+        reference_tf_stop_ = true;
+        callEmergencyStop(odom_pos_);
+        flag_escape_emergency_ = false;
+        changeFSMExecState(EMERGENCY_STOP, "TF_TIMEOUT");
+      }
+      return false;
+    }
+
+    // 拿到了 → 清空“缺失起始时刻”，并按最新变换刷新终点
+    reference_tf_missing_since_ = rclcpp::Time(0, 0, node_->get_clock()->get_clock_type());
+    end_pt_ = current * reference_end_pt_;
+    // 执行轨迹期间，参考系若突然跳了一大步，旧轨迹的预测状态已不可信 → 重规划
+    if (exec_state_ == EXEC_TRAJ && have_last_reference_transform_ &&
+        referenceTransformJumped(last_reference_to_world_, current, odom_pos_,
+                                 reference_tf_jump_translation_, reference_tf_jump_yaw_))
+    {
+      reference_jump_replan_ = true;
+      changeFSMExecState(REPLAN_TRAJ, "TF_CHANGED");
+    }
     return true;
   }
 
   // 取“局部目标点”：沿全局轨迹往前走大约 planning_horizon_ 米，
   // 把那个点作为这一轮规划的局部目标（而不是一路直奔最终终点）。
   // 若该点正好在障碍里，就前后找一个能站人的点代替。
-  void SCANReplanFSM::getLocalTarget()
+  // navi_mode=3 时全局轨迹给在“参考坐标系”下，这里会先换算到 world 系；
+  // 换算不成功（TF 不可用或过旧）则返回 false，本轮规划直接放弃。
+  bool SCANReplanFSM::getLocalTarget()
   {
-    // t：沿全局轨迹遍历用的时间变量
-    double t;
-
+    Eigen::Isometry3d reference_to_world = Eigen::Isometry3d::Identity();
+    if (navi_mode_ == NAVI_MODE::REFERENCE_PATH)
+    {
+      if (!lookupReferenceTransform(reference_to_world))
+        return false;
+      planning_reference_to_world_ = reference_to_world;
+      end_pt_ = reference_to_world * reference_end_pt_;
+    }
+    // 起点也换算到参考系下，后面的距离都在同一个坐标系里算
+    const Eigen::Vector3d reference_start = reference_to_world.inverse() * start_pt_;
+    auto toWorld = [&](const Eigen::Vector3d &reference_point) {
+      return reference_to_world * reference_point;
+    };
+    const double max_vel = planner_manager_->pp_.max_vel_;
+    const double max_acc = planner_manager_->pp_.max_acc_;
+    const double duration = planner_manager_->global_data_.global_duration_;
     // 采样步长：把规划视野长度分成 20 份
-    double t_step = planning_horizon_ / 20 / planner_manager_->pp_.max_vel_;
-    // dist_min 记录“离起点最近的距离”，dist_min_t 是对应时刻
-    double dist_min = 9999, dist_min_t = 0.0;
-    // target_t：局部目标在全局轨迹上对应的时刻（默认取全局终点）
-    double target_t = planner_manager_->global_data_.global_duration_;
-    // 从“上次推进到的时间”开始，沿全局轨迹向后搜索
-    for (t = planner_manager_->global_data_.last_progress_time_; t < planner_manager_->global_data_.global_duration_; t += t_step)
+    double t_step = max_vel > 1e-6 ? planning_horizon_ / 20.0 / max_vel : 0.01;
+    t_step = std::max(t_step, 0.01);
+
+    // 先在全局轨迹上找“离起点最近”的时刻 t_proj，避免轨迹回绕时取错段
+    double t_proj = 0.0;
+    double min_dist_to_start = 9999.0;
+    // t：沿全局轨迹遍历用的时间变量
+    for (double t = 0.0; t < duration; t += t_step)
     {
       // 该时刻的位置
       Eigen::Vector3d pos_t = planner_manager_->global_data_.getPosition(t);
       // 它离当前起点有多远
-      double dist = (pos_t - start_pt_).norm();
-
-      // 异常保护：还没走出规划视野却已经很远 → 打错误日志并就地取点
-      if (t < planner_manager_->global_data_.last_progress_time_ + 1e-5 && dist > planning_horizon_)
-      {
-        RCLCPP_ERROR(node_->get_logger(),
-                     "Local target progress mismatch: distance=%.3f horizon=%.3f progress_time=%.3f",
-                     dist, planning_horizon_, planner_manager_->global_data_.last_progress_time_);
-        local_target_pt_ = pos_t;
-        target_t = t;
-        planner_manager_->global_data_.last_progress_time_ = t;
-        break;
-      }
+      double dist_to_start = (pos_t - reference_start).norm();
       // 记录“离起点最近的点”，后面回退搜索时不能越过它
-      if (dist < dist_min)
+      if (dist_to_start < min_dist_to_start)
       {
-        dist_min = dist;
-        dist_min_t = t;
+        min_dist_to_start = dist_to_start;
+        t_proj = t;
       }
+    }
+
+    // target_t：局部目标在全局轨迹上对应的时刻（默认取全局终点）
+    double target_t = duration;
+    double total_dist = 0.0;
+    bool target_found = false;
+    Eigen::Vector3d prev_pos = planner_manager_->global_data_.getPosition(t_proj);
+    // 局部目标 = 最终终点
+    local_target_pt_ = end_pt_;
+
+    // 从 t_proj 往后走，累计走过的弧长；达到规划视野长度就以那里为局部目标
+    for (double t = t_proj; t < duration; t += t_step)
+    {
+      Eigen::Vector3d pos_t = planner_manager_->global_data_.getPosition(t);
+      total_dist += (pos_t - prev_pos).norm();
       // 一旦距离达到规划视野长度 → 就把这个点作为局部目标
-      if (dist >= planning_horizon_)
+      if (total_dist >= planning_horizon_)
       {
-        local_target_pt_ = pos_t;
+        local_target_pt_ = toWorld(pos_t);
         target_t = t;
-        // 把“进度时间”记成最近点，保证下一轮从这里继续（不会回头看）
-        planner_manager_->global_data_.last_progress_time_ = dist_min_t;
+        target_found = true;
         break;
       }
+      prev_pos = pos_t;
     }
-    // 如果一路走到了全局轨迹末尾 → 局部目标直接用最终终点
-    if (t > planner_manager_->global_data_.global_duration_) // Last global point
-    {
-      // 局部目标 = 最终终点
-      local_target_pt_ = end_pt_;
-      target_t = planner_manager_->global_data_.global_duration_;
-    }
+    // 把“进度时间”记成局部目标时刻，保证下一轮从这里继续（不会回头看）
+    planner_manager_->global_data_.last_progress_time_ = target_found ? target_t : duration;
 
     // 小工具：查询某个点是否被障碍占据（查询时带上朝向）
     auto targetOccupancy = [&](const Eigen::Vector3d &pt) {
@@ -1350,14 +1601,14 @@ namespace scan_planner
       double adjusted_t = target_t;
 
       // 从目标时刻出发，向两侧逐步扩大搜索范围
-      for (double dt = 0.0; dt <= planner_manager_->global_data_.global_duration_; dt += t_step)
+      for (double dt = 0.0; dt <= duration; dt += t_step)
       {
         // 先往“前”找（更靠近终点的那一侧）
         double t_forward = target_t + dt;
         // 不能超出全局轨迹的范围
-        if (t_forward <= planner_manager_->global_data_.global_duration_)
+        if (t_forward <= duration)
         {
-          Eigen::Vector3d pt = planner_manager_->global_data_.getPosition(t_forward);
+          Eigen::Vector3d pt = toWorld(planner_manager_->global_data_.getPosition(t_forward));
           // 找到一个空点 → 采用它并结束搜索
           if (targetOccupancy(pt) == 0)
           {
@@ -1370,9 +1621,9 @@ namespace scan_planner
 
         // 再往“后”找，但不能退到“离起点最近的点”之前
         double t_backward = target_t - dt;
-        if (t_backward >= std::max(0.0, dist_min_t))
+        if (t_backward >= std::max(0.0, t_proj))
         {
-          Eigen::Vector3d pt = planner_manager_->global_data_.getPosition(t_backward);
+          Eigen::Vector3d pt = toWorld(planner_manager_->global_data_.getPosition(t_backward));
           if (targetOccupancy(pt) == 0)
           {
             local_target_pt_ = pt;
@@ -1395,11 +1646,21 @@ namespace scan_planner
       {
         RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
                              "Local target is in collision and no nearby free target was found");
+        return false;
+      }
+      if (!target_found && target_t < duration)
+      {
+        reference_end_pt_ = planner_manager_->global_data_.getPosition(target_t);
+        planner_manager_->global_data_.global_duration_ = target_t;
+        end_pt_ = local_target_pt_;
       }
     }
 
     // 如果局部目标已经非常接近最终终点（进入刹车距离之内）
-    if ((end_pt_ - local_target_pt_).norm() < (planner_manager_->pp_.max_vel_ * planner_manager_->pp_.max_vel_) / (2 * planner_manager_->pp_.max_acc_))
+    const double braking_distance = max_acc > 1e-6
+        ? (max_vel * max_vel) / (2.0 * max_acc)
+        : std::numeric_limits<double>::infinity();
+    if ((end_pt_ - local_target_pt_).norm() < braking_distance)
     {
       // local_target_vel_ = (end_pt_ - init_pt_).normalized() * planner_manager_->pp_.max_vel_ * (( end_pt_ - local_target_pt_ ).norm() / ((planner_manager_->pp_.max_vel_*planner_manager_->pp_.max_vel_)/(2*planner_manager_->pp_.max_acc_)));
       // cout << "A" << endl;
@@ -1411,8 +1672,12 @@ namespace scan_planner
     {
       // 局部目标速度 = 全局轨迹在该时刻的速度（保持匀速通过）
       local_target_vel_ = planner_manager_->global_data_.getVelocity(target_t);
+      local_target_vel_ = reference_to_world.linear() * local_target_vel_;
+      if (local_target_vel_.norm() > max_vel)
+        local_target_vel_ = local_target_vel_.normalized() * max_vel;
       // cout << "AA" << endl;
     }
+    return true;
   }
 
 } // namespace scan_planner
