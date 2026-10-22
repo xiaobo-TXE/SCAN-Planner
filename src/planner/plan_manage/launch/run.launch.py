@@ -45,6 +45,7 @@ def _setup(context):
     sensor_type = LaunchConfiguration("sensor_type").perform(context)
     controller_mode = LaunchConfiguration("controller_mode").perform(context)
     keypoints_file = LaunchConfiguration("keypoints_file").perform(context)
+    reference_path_file = LaunchConfiguration("reference_path_file").perform(context)
     navi_mode = int(LaunchConfiguration("navi_mode").perform(context))
     if sensor_type not in ("lidar", "depth"):
         raise RuntimeError("sensor_type must be 'lidar' or 'depth'")
@@ -55,6 +56,14 @@ def _setup(context):
     if navi_mode == 2 and (not keypoints_file or not os.path.isfile(keypoints_file)):
         raise RuntimeError(
             "navi_mode=2 requires keypoints_file to reference a ROS 2 parameter YAML"
+        )
+    # reference_path_file：可选参数，指定后额外拉起自带的参考路径发布器，
+    # 用参数文件里的示例航点驱动 navi_mode=3（只在 mode 3 下才有意义）。
+    if reference_path_file and navi_mode != 3:
+        raise RuntimeError("reference_path_file is only valid when navi_mode=3")
+    if reference_path_file and not os.path.isfile(reference_path_file):
+        raise RuntimeError(
+            "reference_path_file must reference an existing ROS 2 parameter YAML"
         )
 
     # 下面这段是“二选一”：
@@ -106,7 +115,10 @@ def _setup(context):
                 ("cloud", cloud),
                 ("depth", depth),
                 ("move_base_simple/goal", "/move_base_simple/goal"),
-                ("initial_path", "/initial_path"),
+                # navi_mode=3 的输入：外部给的全局路径（真机上是 global_planner 发出的）
+                ("initial_path", "/global_path"),
+                # 规划器额外把当前局部轨迹发出来，方便观察/录制
+                ("local_path", "/local_path"),
             ],
         )
     ]
@@ -188,6 +200,24 @@ def _setup(context):
                 )
             )
 
+    # ---- 节点 4：自带的参考路径发布器（可选，仅 navi_mode=3）----
+    # 只用来跑示例：从参数文件读一条航点表，等里程计就绪后发到参考路径话题上。
+    # 真机上通常不需要它——外部 global_planner 会自己发全局路径。
+    if reference_path_file:
+        actions.append(
+            Node(
+                package="scan_planner",
+                executable="reference_path_publisher.py",
+                name="reference_path_publisher",
+                output="screen",
+                parameters=[reference_path_file, common],
+                remappings=[
+                    ("body_pose", body_pose),
+                    ("initial_path", "/initial_path"),
+                ],
+            )
+        )
+
     if not is_real:
         actions.extend(
             [
@@ -237,6 +267,7 @@ def generate_launch_description():
             DeclareLaunchArgument("sensor_type", default_value="lidar"),
             DeclareLaunchArgument("controller_mode", default_value="closed_loop"),
             DeclareLaunchArgument("keypoints_file", default_value=""),
+            DeclareLaunchArgument("reference_path_file", default_value=""),
             DeclareLaunchArgument("use_gpu", default_value="false"),
             DeclareLaunchArgument("use_pcd_map", default_value="false"),
             DeclareLaunchArgument("pcd_map_file", default_value=""),
