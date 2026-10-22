@@ -38,12 +38,12 @@ namespace scan_planner
 
   // // real ids used: {id, id+1000}
   void PlanningVisualization::displayMarkerList(const MarkerPublisher::SharedPtr &pub, const vector<Eigen::Vector3d> &list, double scale,
-                                                Eigen::Vector4d color, int id)
+                                                Eigen::Vector4d color, int id, const std::string &frame_id)
   {
     // 同一组点要画两份：小球（SPHERE_LIST）和折线（LINE_STRIP）
     visualization_msgs::msg::Marker sphere, line_strip;
-    // 坐标框架统一用 world，时间戳取当前时间
-    sphere.header.frame_id = line_strip.header.frame_id = "world";
+    // 坐标框架用调用方给的 frame_id（默认 world），时间戳取当前时间
+    sphere.header.frame_id = line_strip.header.frame_id = frame_id;
     sphere.header.stamp = line_strip.header.stamp = node_->now();
     // sphere 用来画点，line_strip 用来连线
     sphere.type = visualization_msgs::msg::Marker::SPHERE_LIST;
@@ -168,11 +168,12 @@ namespace scan_planner
   }
 
   // 画一个目标点：一个白色的小球
-  void PlanningVisualization::displayGoalPoint(Eigen::Vector3d goal_point, Eigen::Vector4d color, const double scale, int id)
+  void PlanningVisualization::displayGoalPoint(Eigen::Vector3d goal_point, Eigen::Vector4d color, const double scale, int id,
+                                               const std::string &frame_id)
   {
     // 球体 Marker
     visualization_msgs::msg::Marker sphere;
-    sphere.header.frame_id = "world";
+    sphere.header.frame_id = frame_id;
     sphere.header.stamp = node_->now();
     sphere.type = visualization_msgs::msg::Marker::SPHERE;
     sphere.action = visualization_msgs::msg::Marker::ADD;
@@ -197,7 +198,8 @@ namespace scan_planner
   }
 
   // 画“全局参考路径”（青色）
-  void PlanningVisualization::displayGlobalPathList(vector<Eigen::Vector3d> init_pts, const double scale, int id)
+  void PlanningVisualization::displayGlobalPathList(vector<Eigen::Vector3d> init_pts, const double scale, int id,
+                                                    const std::string &frame_id)
   {
 
     // 没有订阅者就不画（省算力）
@@ -208,8 +210,8 @@ namespace scan_planner
 
     // 青色
     Eigen::Vector4d color(0, 0.5, 0.5, 1);
-    // 交给通用函数 displayMarkerList 去画
-    displayMarkerList(global_list_pub, init_pts, scale, color, id);
+    // 交给通用函数 displayMarkerList 去画（坐标系透传下去）
+    displayMarkerList(global_list_pub, init_pts, scale, color, id, frame_id);
   }
 
   // 画“优化前的初始路径”（蓝色）
