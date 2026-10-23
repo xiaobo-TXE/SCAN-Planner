@@ -1,0 +1,67 @@
+# ============================================================================
+# 文件：config/robots/a2.yaml —— A2 机型档案
+#
+# 【这个文件是干什么的】
+#   只放“与具体机器人 / 场地相关”的参数。启动时叠加在通用默认之上，
+#   覆盖顺序（后者覆盖前者）：
+#     planner.yaml / controllers.yaml 的通用默认
+#       → 本机型档案
+#         → 命令行传的参数
+#
+# 【怎么用】
+#   ros2 launch scan_planner run.launch.py robot:=a2
+#   不指定 robot 时：真机默认用 a2 档案，仿真则不叠加任何档案（robot:=none）。
+#
+# 【换机型怎么加】
+#   在本目录新增 <机型>.yaml，照本文件的结构写（节点名 + ros__parameters），
+#   启动时传 robot:=<机型> 即可，不需要改任何代码。
+#
+# 【两段内容】
+#   scan_planner_node / closed_loop_controller / go2_kinematic_sim
+#     各节点的参数覆盖：只写需要覆盖的项，不用复制整份 planner.yaml
+#   robot_topics
+#     不是节点参数，由 run.launch.py 读取，用来生成话题重映射与初始位置
+# ============================================================================
+scan_planner_node:
+  ros__parameters:
+    # 目标怎么来：A2 上用参考路径模式（订阅外部 global_planner 的 /global_path）
+    fsm.navi_mode: 3
+    # 规划视野(米)：局部与全局各用一个值（实机 A2 实测取值）
+    fsm.planning_horizon: 2.5
+    manager.planning_horizon: 3.5
+    # 速度上限(米/秒)
+    manager.max_vel: 1.0
+    optimization.max_vel: 1.0
+    # 局部滑动地图尺寸(米)与更新范围(米)
+    grid_map.sliding_map_size_x: 6.0
+    grid_map.sliding_map_size_y: 6.0
+    grid_map.sliding_map_size_z: 4.0
+    grid_map.local_update_range_x: 4.0
+    grid_map.local_update_range_y: 4.0
+    # 机器人形态（实机 A2 实测取值）：
+    #   body_height 取 0，前后两个碰撞圆柱中心各偏移 0.3 米，
+    #   竖直向下只需膨胀 0.1 米。
+    grid_map.body_height: 0.0
+    grid_map.double_cylinder_offset: 0.3
+    grid_map.obstacles_inflation_z_down: 0.1
+
+closed_loop_controller:
+  ros__parameters:
+    # 闭环控制器的前进速度上限(米/秒)
+    max_vx: 1.0
+
+go2_kinematic_sim:
+  ros__parameters:
+    # 仅在仿真下使用；与上面的速度上限保持一致
+    max_vx: 1.0
+
+# 以下不是节点参数，由 run.launch.py 读取使用
+robot_topics:
+  # 真机话题名（按 A2 上实际运行的 LIO / super_lio 输出）
+  body_pose: /lio/robo/odom
+  sensor_pose: /lio/imu/odom
+  cloud: /lio/cloud_world
+  # 该点云已经在世界系下，不需要再做外参变换
+  cloud_is_world: true
+  # 初始位置 [x, y, z]；命令行 init_x/init_y/init_z 仍可覆盖
+  init: [-5.5, 5.5, 0.5]
