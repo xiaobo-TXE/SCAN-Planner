@@ -19,7 +19,7 @@ closed_loop_controller:
     kp_pos: 0.8
     # 转向的比例增益：朝向误差 → 转向角速度。
     kp_yaw: 1.5
-    max_vx: 0.75
+    max_vx: 1.0
     max_vy: 0.35
     max_vyaw: 1.0
     # 距离终点小于这个值(米)且已走完轨迹，就发“停下”。
@@ -51,7 +51,7 @@ go2_kinematic_sim:
     init_y: 1.0
     init_z: 0.3
     init_yaw: 0.0
-    max_vx: 0.75
+    max_vx: 1.0
     max_vy: 0.35
     max_vyaw: 1.0
     # 超过这个时间(秒)没收到新速度指令，就把速度清零（失联停车）。
