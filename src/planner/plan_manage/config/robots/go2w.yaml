@@ -1,0 +1,51 @@
+# ============================================================================
+# 文件：config/robots/go2w.yaml —— Go2-W（轮足）机型档案
+#
+# 【数据来源】
+#   宇树官方 Go2-W 参数页（机械规格 / 性能参数）：
+#   https://www.unitree.com/go2-w
+#   规格摘要：站立尺寸 70 × 43 × 50 cm，整机约 18 kg，速度 0~2.5 m/s，
+#   最大爬坡角 35°，7 英寸充气轮胎。
+#
+# 【怎么用】
+#   ros2 launch scan_planner run.launch.py robot:=go2w
+#
+# 【与 Go2 的差异】
+#   Go2-W 多了轮子，车体更宽（43 cm）、更高（50 cm），但纵向长度相同（70 cm），
+#   所以“前后两圆柱”的半径更大、偏移更小；速度上限较低（2.5 m/s）。
+# ============================================================================
+scan_planner_node:
+  ros__parameters:
+    # 目标怎么来：与 A2 一致用参考路径模式；没有外部全局路径时改成 1
+    fsm.navi_mode: 3
+
+    # ---- 机器人外形（由官方站立尺寸换算）----
+    #   半径 = 车体半宽 = 0.43/2 ≈ 0.215，取 0.22
+    #   前后偏移 = 车体半长 − 半径 = 0.70/2 − 0.22 = 0.13
+    grid_map.double_cylinder_radius: 0.22
+    grid_map.double_cylinder_offset: 0.13
+    # 站立高度 0.50 m（官方机械规格）。该值会加到参考路径的 z 上
+    # （外部给的是地面高度）；若你的路径 z 已包含机身高度，改成 0.0。
+    grid_map.body_height: 0.50
+
+    # ---- 速度上限 ----
+    # 官方最高 2.5 m/s；规划速度上限按保守值取 1.0 m/s，按场地再调。
+    manager.max_vel: 1.0
+    optimization.max_vel: 1.0
+
+closed_loop_controller:
+  ros__parameters:
+    max_vx: 1.0
+
+go2_kinematic_sim:
+  ros__parameters:
+    max_vx: 1.0
+
+# 以下不是节点参数，由 run.launch.py 读取使用
+robot_topics:
+  # 真机话题名：按 Go2-W 上实际运行的 LIO 输出核对/修改
+  body_pose: /lio/robo/odom
+  sensor_pose: /lio/imu/odom
+  cloud: /lio/cloud_world
+  cloud_is_world: true
+  # init: [-19.0, 1.0, 0.25]
