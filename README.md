@@ -94,7 +94,9 @@ ros2 launch scan_planner run.launch.py \
 
 `reference_path_file` 只在 `navi_mode:=3` 下可用，且必须指向一个已存在的 ROS 2 参数文件。实机上通常不需要它——外部全局规划器会自行发布 `/global_path`。
 
-实际硬件部署时，激光惯导里程计（LIO）、相机和宇树（Unitree）驱动均为外部依赖，默认启动会将规划器输入映射到 `/LIO/odom_vehicle`、`/LIO/odom_imu`、`/LIO/clouds_lidar` 话题以及 RealSense 对齐深度图话题，可根据实际安装的驱动栈修改话题重映射配置。
+实际硬件部署时，激光惯导里程计（LIO）、相机和宇树（Unitree）驱动均为外部依赖。默认启动（`is_real_world:=true`、`navi_mode:=3`）会按 A2 上实际运行的 LIO 话题名把规划器输入映射到 `/lio/robo/odom`、`/lio/imu/odom`、`/lio/cloud_world`，以及 RealSense 对齐深度图话题 `/camera/aligned_depth_to_color/image_raw`；该 LIO 的点云已在世界系下，因此不再做外参变换。可根据实际安装的驱动栈修改话题重映射配置。
+
+初始位置默认值按导航模式区分：`navi_mode:=1` 为 `(-19.0, 1.0, 0.25)`，其余模式为 `(-5.5, 5.5, 0.5)`；显式传入 `init_x` / `init_y` / `init_z` 时以下传值为准。
 
 ## 配置与接口
 
