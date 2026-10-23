@@ -71,9 +71,11 @@ RViz2 配置已适配 ROS 2 Humble：Go2 的 RobotModel 使用现有的 `meshes/
 导航模式说明：
 - `navi_mode:=1`：使用 RViz2 的 2D 目标点工具选择导航目标
 - `navi_mode:=2`：按照 ROS 2 参数文件中预设的 `fsm.waypoints` 路径点序列导航
-- `navi_mode:=3`：订阅 `initial_path` 话题获取全局路径，并在局部范围内进行避障
+- `navi_mode:=3`：订阅 `/global_path` 话题（`nav_msgs/msg/Path`）获取一条全局参考路径，并沿它在局部范围内避障
 
-控制器模式分为 `open_loop`（开环）和 `closed_loop`（闭环）两种。本次移植保留的核心启动参数包括：`is_real_world`、`navi_mode`、`sensor_type`、`controller_mode`、`use_gpu`、`use_pcd_map` 和 `pcd_map_file`。
+`navi_mode:=3` 的参考路径可以带自己的坐标系（例如 `map`）：规划器会通过 TF 把它换算到建图坐标系（`grid_map.frame_id`，默认 `world`）。换算所需的 TF 长时间缺失、或参考系发生明显跳变（定位修正）时，规划器会安全停机并触发重规划，相关阈值见 `fsm.reference_tf_*` 参数。该模式下规划器还会把当前局部轨迹发布到 `/local_path` 话题，便于观察或录制。
+
+控制器模式分为 `open_loop`（开环）和 `closed_loop`（闭环）两种。本次移植保留的核心启动参数包括：`is_real_world`、`navi_mode`、`sensor_type`、`controller_mode`、`use_gpu`、`use_pcd_map`、`pcd_map_file` 和 `reference_path_file`。
 
 当 `use_pcd_map:=true` 时，必须提供已有的 PCD 点云地图文件：
 
@@ -81,6 +83,16 @@ RViz2 配置已适配 ROS 2 Humble：Go2 的 RobotModel 使用现有的 `meshes/
 ros2 launch scan_planner run.launch.py \
   use_pcd_map:=true pcd_map_file:=/absolute/path/to/map.pcd
 ```
+
+`navi_mode:=3` 可以用自带的示例发布器快速试跑（航点写在 `config/reference_path.map.yaml`，坐标系为 `world`）。传入 `reference_path_file` 后，启动文件会额外拉起 `reference_path_publisher`，等里程计就绪后把这条路径发到全局路径话题上：
+
+```bash
+ros2 launch scan_planner run.launch.py \
+  is_real_world:=false navi_mode:=3 \
+  reference_path_file:=$(ros2 pkg prefix scan_planner)/share/scan_planner/config/reference_path.map.yaml
+```
+
+`reference_path_file` 只在 `navi_mode:=3` 下可用，且必须指向一个已存在的 ROS 2 参数文件。实机上通常不需要它——外部全局规划器会自行发布 `/global_path`。
 
 实际硬件部署时，激光惯导里程计（LIO）、相机和宇树（Unitree）驱动均为外部依赖，默认启动会将规划器输入映射到 `/LIO/odom_vehicle`、`/LIO/odom_imu`、`/LIO/clouds_lidar` 话题以及 RealSense 对齐深度图话题，可根据实际安装的驱动栈修改话题重映射配置。
 
@@ -100,13 +112,39 @@ scan_planner_node:
     fsm.waypoints: [0.0, 0.0, 0.3, 5.0, 1.0, 0.3]
 ```
 
-自定义消息类型为 `scan_planner_msgs/msg/Bspline` 和 `scan_planner_msgs/msg/DataDisp`。规划器相关话题均为相对话题，支持重映射，核心输出话题包括 `planning/bspline`、`planning/data_display` 和 `planning/go2_execution_frozen`。
+自定义消息类型为 `scan_planner_msgs/msg/Bspline` 和 `scan_planner_msgs/msg/DataDisp`。规划器相关话题均为相对话题，支持重映射，核心输出话题包括 `planning/bspline`、`planning/data_display`、`planning/go2_execution_frozen` 和 `local_path`。`navi_mode:=3` 的输入话题为 `initial_path`，`run.launch.py` 默认把它重映射为 `/global_path`。
+
+`navi_mode:=3` 额外的参考坐标系与安全阈值参数：
+
+```yaml
+scan_planner_node:
+  ros__parameters:
+    # 允许的最大 TF 年龄(秒)：比这更旧的变换认为不可用
+    fsm.reference_tf_max_age: 0.3
+    # 宽限时间(秒)：TF 连续拿不到超过这么久就急停
+    fsm.reference_tf_grace: 0.5
+    # 判定“参考系跳变”的平移阈值(米)
+    fsm.reference_tf_jump_translation: 0.2
+    # 判定“参考系跳变”的偏航阈值(度)
+    fsm.reference_tf_jump_yaw_deg: 5.0
+```
 
 关键点记录器现在是原生的 `rclpy` 可执行程序：
 
 ```bash
 ros2 run scan_planner keypoint_recorder.py --output keypoints.yaml
 ```
+
+## 测试
+
+构建后可以运行测试。参考路径 / 参考坐标系相关的单元测试与启动测试位于 `src/planner/plan_manage/test/`，用标签过滤只跑这一组：
+
+```bash
+colcon test --packages-select scan_planner --ctest-args -R reference
+colcon test-result --verbose
+```
+
+注意其中的启动测试（`test_dynamic_reference_tf_launch.py`、`test_reference_path_publisher_launch.py`）依赖实时性，机器负载较高时可能出现偶发失败；空载重跑即可确认。
 
 ## Gazebo Fortress / Go2 仿真
 
