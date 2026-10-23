@@ -50,6 +50,8 @@ install(TARGETS plan_env EXPORT export_plan_env
 install(DIRECTORY include/ DESTINATION include)
 ament_export_targets(export_plan_env HAS_LIBRARY_TARGET)
 ament_export_dependencies(
-  cv_bridge Eigen3 geometry_msgs message_filters nav_msgs pcl_conversions
+  # OpenCV / PCL 此前靠 ${OpenCV_LIBS} 隐式带进来，这里显式声明，
+  # 避免下游包解析依赖时缺项。
+  cv_bridge Eigen3 geometry_msgs message_filters nav_msgs OpenCV PCL pcl_conversions
   rclcpp sensor_msgs tf2 tf2_ros visualization_msgs)
 ament_package()

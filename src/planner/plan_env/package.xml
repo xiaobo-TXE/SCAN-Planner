@@ -16,6 +16,8 @@
   <depend>cv_bridge</depend>
   <depend>eigen</depend>
   <depend>geometry_msgs</depend>
+  <depend>libopencv-dev</depend>
+  <depend>libpcl-all-dev</depend>
   <!-- message_filters：把“深度图”和“传感器位姿”两路消息按时间戳配对 -->
   <depend>message_filters</depend>
   <depend>nav_msgs</depend>
