@@ -70,13 +70,26 @@ private:
     // 发布当前位置
     pose_pub_->publish(pose);
 
-    // 把这一帧位姿追加到历史轨迹里
+    // 把这一帧位姿记进历史轨迹：只有比“上一个已记录点”移动足够远时才追加。
+    // 这样原地不动或缓慢漂移时不会灌进大量重复点，轨迹更干净、消息也更小。
     path_.header.stamp = pose.header.stamp;
-    path_.poses.push_back(pose);
-    // 轨迹点太多时丢掉最早的一批，避免无限增长
-    if (path_.poses.size() > 10000) path_.poses.erase(path_.poses.begin(), path_.poses.begin() + 1000);
-    // 发布整条历史轨迹
-    path_pub_->publish(path_);
+    const auto &position = pose.pose.position;
+    // 与上一个记录点的位移平方（避免开方）
+    const double dx = position.x - last_path_position_.x;
+    const double dy = position.y - last_path_position_.y;
+    const double dz = position.z - last_path_position_.z;
+    // 0.25 = 0.5 米；第一个点无条件记录
+    if (!has_last_path_pose_ || dx * dx + dy * dy + dz * dz > 0.25)
+    {
+      path_.poses.push_back(pose);
+      last_path_position_ = position;
+      has_last_path_pose_ = true;
+      // 轨迹点太多时逐点丢掉最早的，保证长度有上限
+      while (path_.poses.size() > 1000)
+        path_.poses.erase(path_.poses.begin());
+      // 发布整条历史轨迹
+      path_pub_->publish(path_);
+    }
 
     // 画一个速度箭头：从当前位置指向“当前位置 + 速度向量”
     visualization_msgs::msg::Marker velocity;
@@ -159,6 +172,9 @@ private:
   std::string frame_id_, child_frame_id_, mesh_resource_;
   double scale_{1.0}, color_r_{0.0}, color_g_{0.0}, color_b_{0.0}, color_a_{1.0};
   bool publish_tf_{false};
+  // 轨迹抽稀用：是否已经记录过点，以及上一个被记录点的位置
+  bool has_last_path_pose_{false};
+  geometry_msgs::msg::Point last_path_position_;
   nav_msgs::msg::Path path_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
