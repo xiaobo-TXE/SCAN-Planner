@@ -78,6 +78,14 @@ Maps::randomMapGenerate()
 
   pcl::PointXYZ pt_random;
 
+  // 小工具：往点云里加一个点
+  auto pushPoint = [&](double px, double py, double pz) {
+    pt_random.x = px;
+    pt_random.y = py;
+    pt_random.z = pz;
+    info.cloud->points.push_back(pt_random);
+  };
+
   // 分别设定它们的取值范围
   rand_x = std::uniform_real_distribution<double>(_x_l, _x_h);
   rand_y = std::uniform_real_distribution<double>(_y_l, _y_h);
@@ -105,14 +113,6 @@ Maps::randomMapGenerate()
     // 每个面细分成多少格（决定表面点的稠密程度）
     const int xy_steps = std::max(1, static_cast<int>(std::ceil(w / surface_resolution)));
     const int z_steps = std::max(1, static_cast<int>(std::ceil(h / surface_resolution)));
-
-    // 小工具：往点云里加一个点
-    auto pushPoint = [&](double px, double py, double pz) {
-      pt_random.x = px;
-      pt_random.y = py;
-      pt_random.z = pz;
-      info.cloud->points.push_back(pt_random);
-    };
 
     // 逐个高度层生成“四个竖直侧面”上的点
     for (int iz = 0; iz <= z_steps; ++iz)
