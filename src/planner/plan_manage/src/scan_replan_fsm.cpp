@@ -98,7 +98,7 @@ namespace scan_planner
     self_inflation_z_down_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_down", 0.0);
     self_double_cylinder_radius_ = load_parameter<double>(node_, "grid_map.double_cylinder_radius", 0.0);
     self_double_cylinder_offset_ = load_parameter<double>(node_, "grid_map.double_cylinder_offset", 0.0);
-    body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.4);
+    body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.0);
     self_inflation_frame_id_ = load_parameter<std::string>(node_, "grid_map.frame_id", "world");
     reference_tf_max_age_ = load_parameter<double>(node_, "fsm.reference_tf_max_age", 0.3);
     reference_tf_grace_ = load_parameter<double>(node_, "fsm.reference_tf_grace", 0.5);
