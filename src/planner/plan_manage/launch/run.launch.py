@@ -13,7 +13,7 @@
 #   5. 仿真时顺便把 simulator.launch.py（造地图+传感器）也拉起来
 #
 # 【重要概念】remappings = 话题改名。
-#   规划器内部写的是 body_pose，但真机上真实话题叫 /LIO/odom_vehicle，
+#   规划器内部写的是 body_pose，但真机上真实话题叫 /lio/robo/odom，
 #   这里就把两者“接”起来。仿真时则接到 /quad_0/body_pose。
 # ============================================================================
 """Main ROS 2 launch entry point for simulation and real-robot remapping."""
@@ -66,15 +66,26 @@ def _setup(context):
             "reference_path_file must reference an existing ROS 2 parameter YAML"
         )
 
+    # 初始位置：三种模式默认起点不同，所以按 navi_mode 各给一组默认值；
+    # 命令行若显式传了 init_x/init_y/init_z 就以下传的为准。
+    mode_default_init = (-19.0, 1.0, 0.25) if navi_mode == 1 else (-5.5, 5.5, 0.5)
+    initial_position = []
+    for name, default in zip(("init_x", "init_y", "init_z"), mode_default_init):
+        value = LaunchConfiguration(name).perform(context)
+        initial_position.append(default if value == "" else float(value))
+    init_x, init_y, init_z = initial_position
+
     # 下面这段是“二选一”：
     #   if 分支 = 真机：话题接 LIO 里程计/激光、相机内参用真机标定值；
     #   else 分支 = 仿真：话题接 /quad_0/*，点云已经是世界系、不需要外参。
+    # 真机话题名按 A2 上实际运行的 LIO（super_lio）输出来配：
+    # 点云已经在世界系下（cloud_world），所以不需要再做外参变换。
     if is_real:
-        body_pose = "/LIO/odom_vehicle"
-        sensor_pose = "/LIO/odom_imu"
-        cloud = "/LIO/clouds_lidar"
+        body_pose = "/lio/robo/odom"
+        sensor_pose = "/lio/imu/odom"
+        cloud = "/lio/cloud_world"
         depth = "/camera/aligned_depth_to_color/image_raw"
-        cloud_is_world = False
+        cloud_is_world = True
         need_extrinsic = True
         intrinsics = {
             "grid_map.cx": 317.19183349609375,
@@ -122,25 +133,28 @@ def _setup(context):
             ],
         )
     ]
-    actions.append(
-        Node(
-            package="robot_state_publisher",
-    # ---- 节点 2：机器人模型显示 ----
+    # ---- 节点 2：机器人模型显示（仅仿真）----
     # 用 xacro 生成 robot_description，让 RViz 能画出 Go2 的外形。
-            executable="robot_state_publisher",
-            name="go2_robot_state_publisher",
-            output="screen",
-            parameters=[
-                common,
-                {
-                    "robot_description": Command(
-                        ["xacro ", os.path.join(go2_share, "xacro", "robot.xacro"),
-                         " use_gazebo:=false"]
-                    )
-                },
-            ],
+    # 真机上机器人模型与 TF 由宇树自身的驱动栈提供，重复发布反而会冲突，
+    # 所以只在仿真（is_real_world:=false）时启动这个节点。
+    if not is_real:
+        actions.append(
+            Node(
+                package="robot_state_publisher",
+                executable="robot_state_publisher",
+                name="go2_robot_state_publisher",
+                output="screen",
+                parameters=[
+                    common,
+                    {
+                        "robot_description": Command(
+                            ["xacro ", os.path.join(go2_share, "xacro", "robot.xacro"),
+                             " use_gazebo:=false"]
+                        )
+                    },
+                ],
+            )
         )
-    )
 
     if controller_mode == "open_loop":
         actions.append(
@@ -151,7 +165,11 @@ def _setup(context):
                 executable="open_loop_controller",
                 name="open_loop_controller",
                 output="screen",
-                parameters=[controllers_yaml, common],
+                parameters=[
+                    controllers_yaml,
+                    common,
+                    {"init_x": init_x, "init_y": init_y, "init_z": init_z},
+                ],
                 remappings=[
                     ("planning/bspline", "/planning/bspline"),
                     ("body_pose", body_pose),
@@ -187,9 +205,9 @@ def _setup(context):
                         controllers_yaml,
                         common,
                         {
-                            "init_x": float(LaunchConfiguration("init_x").perform(context)),
-                            "init_y": float(LaunchConfiguration("init_y").perform(context)),
-                            "init_z": float(LaunchConfiguration("init_z").perform(context)),
+                            "init_x": init_x,
+                            "init_y": init_y,
+                            "init_z": init_z,
                             "publish_tf": False,
                         },
                     ],
@@ -264,8 +282,8 @@ def _setup(context):
 def generate_launch_description():
     return LaunchDescription(
         [
-            DeclareLaunchArgument("is_real_world", default_value="false"),
-            DeclareLaunchArgument("navi_mode", default_value="1"),
+            DeclareLaunchArgument("is_real_world", default_value="true"),
+            DeclareLaunchArgument("navi_mode", default_value="3"),
             DeclareLaunchArgument("sensor_type", default_value="lidar"),
             DeclareLaunchArgument("controller_mode", default_value="closed_loop"),
             DeclareLaunchArgument("keypoints_file", default_value=""),
@@ -276,9 +294,9 @@ def generate_launch_description():
             DeclareLaunchArgument("map_size_x", default_value="40.0"),
             DeclareLaunchArgument("map_size_y", default_value="40.0"),
             DeclareLaunchArgument("map_size_z", default_value="5.0"),
-            DeclareLaunchArgument("init_x", default_value="-19.0"),
-            DeclareLaunchArgument("init_y", default_value="1.0"),
-            DeclareLaunchArgument("init_z", default_value="0.3"),
+            DeclareLaunchArgument("init_x", default_value=""),
+            DeclareLaunchArgument("init_y", default_value=""),
+            DeclareLaunchArgument("init_z", default_value=""),
             DeclareLaunchArgument("use_sim_time", default_value="false"),
             OpaqueFunction(function=_setup),
         ]
