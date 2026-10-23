@@ -9,9 +9,11 @@ Panels:
     Help Height: 0
     Name: Displays
     Property Tree Widget:
-      Expanded: ~
+      Expanded:
+        - /Global Options1
+        - /TF1/Frames1
       Splitter Ratio: 0.5
-    Tree Height: 1206
+    Tree Height: 865
   - Class: rviz_common/Selection
     Name: Selection
   - Class: rviz_common/Tool Properties
@@ -55,185 +57,26 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /robot_description
-      Enabled: true
+      Enabled: false
       Links:
         All Links Enabled: true
         Expand Joint Details: false
         Expand Link Details: false
         Expand Tree: false
-        FL_calf:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_calf_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_foot:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_hip:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_hip_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_thigh:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FL_thigh_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_calf:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_calf_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_foot:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_hip:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_hip_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_thigh:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        FR_thigh_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         Link Tree Style: Links in Alphabetic Order
-        RL_calf:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_calf_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_foot:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_hip:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_hip_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_thigh:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RL_thigh_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_calf:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_calf_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_foot:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_hip:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_hip_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_thigh:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        RR_thigh_rotor:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        base:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        front_camera:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        imu_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        trunk:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
       Mass Properties:
         Inertia: false
         Mass: false
       Name: Go2
       TF Prefix: ""
       Update Interval: 0
-      Value: true
+      Value: false
       Visual Enabled: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz_default_plugins/Path
       Color: 25; 255; 0
-      Enabled: true
+      Enabled: false
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -256,7 +99,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /quad_0/path
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -269,7 +112,7 @@ Visualization Manager:
       Color: 192; 191; 188
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 4096
@@ -290,7 +133,7 @@ Visualization Manager:
         Value: /map_generator/global_cloud
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -303,7 +146,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 199
@@ -324,12 +167,12 @@ Visualization Manager:
         Value: /quad_0/cloud
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.574999988079071
-        Min Value: -0.125
+        Max Value: 0.23117190599441528
+        Min Value: -0.6439252495765686
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -337,7 +180,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: AxisColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 4096
@@ -358,12 +201,12 @@ Visualization Manager:
         Value: /grid_map/occupancy
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
-        Max Value: 0.574999988079071
-        Min Value: -0.5249999761581421
+        Max Value: -9999
+        Min Value: 9999
         Value: true
       Axis: Z
       Channel Name: intensity
@@ -407,10 +250,10 @@ Visualization Manager:
         Value: /grid_map/sliding_map_bbox
       Value: true
     - Class: rviz_default_plugins/Marker
-      Enabled: true
+      Enabled: false
       Name: Goal
       Namespaces:
-        "": true
+        {}
       Topic:
         Depth: 5
         Durability Policy: Volatile
@@ -418,143 +261,110 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /goal_point
-      Value: true
+      Value: false
     - Class: rviz_default_plugins/TF
       Enabled: true
       Frame Timeout: 15
       Frames:
-        All Enabled: true
+        All Enabled: false
         FL_calf:
-          Value: true
+          Value: false
         FL_calf_rotor:
-          Value: true
+          Value: false
         FL_foot:
-          Value: true
+          Value: false
         FL_hip:
-          Value: true
+          Value: false
         FL_hip_rotor:
-          Value: true
+          Value: false
         FL_thigh:
-          Value: true
+          Value: false
         FL_thigh_rotor:
-          Value: true
+          Value: false
         FR_calf:
-          Value: true
+          Value: false
         FR_calf_rotor:
-          Value: true
+          Value: false
         FR_foot:
-          Value: true
+          Value: false
         FR_hip:
-          Value: true
+          Value: false
         FR_hip_rotor:
-          Value: true
+          Value: false
         FR_thigh:
-          Value: true
+          Value: false
         FR_thigh_rotor:
-          Value: true
+          Value: false
         RL_calf:
-          Value: true
+          Value: false
         RL_calf_rotor:
-          Value: true
+          Value: false
         RL_foot:
-          Value: true
+          Value: false
         RL_hip:
-          Value: true
+          Value: false
         RL_hip_rotor:
-          Value: true
+          Value: false
         RL_thigh:
-          Value: true
+          Value: false
         RL_thigh_rotor:
-          Value: true
+          Value: false
         RR_calf:
-          Value: true
+          Value: false
         RR_calf_rotor:
-          Value: true
+          Value: false
         RR_foot:
-          Value: true
+          Value: false
         RR_hip:
-          Value: true
+          Value: false
         RR_hip_rotor:
-          Value: true
+          Value: false
         RR_thigh:
-          Value: true
+          Value: false
         RR_thigh_rotor:
-          Value: true
+          Value: false
         base:
           Value: true
         front_camera:
-          Value: true
+          Value: false
+        imu:
+          Value: false
         imu_link:
-          Value: true
-        sensor:
+          Value: false
+        map:
           Value: true
         sliding_map:
-          Value: true
+          Value: false
         trunk:
-          Value: true
+          Value: false
         world:
           Value: true
-      Marker Scale: 1
+      Marker Scale: 3
       Name: TF
       Show Arrows: true
       Show Axes: true
-      Show Names: false
+      Show Names: true
       Tree:
-        world:
-          base:
-            trunk:
-              FL_hip:
-                FL_thigh:
-                  FL_calf:
-                    FL_foot:
-                      {}
-                  FL_calf_rotor:
-                    {}
-                FL_thigh_rotor:
+        map:
+          world:
+            base:
+              trunk:
+                FL_hip_rotor:
                   {}
-              FL_hip_rotor:
-                {}
-              FR_hip:
-                FR_thigh:
-                  FR_calf:
-                    FR_foot:
-                      {}
-                  FR_calf_rotor:
-                    {}
-                FR_thigh_rotor:
+                FR_hip_rotor:
                   {}
-              FR_hip_rotor:
-                {}
-              RL_hip:
-                RL_thigh:
-                  RL_calf:
-                    RL_foot:
-                      {}
-                  RL_calf_rotor:
-                    {}
-                RL_thigh_rotor:
+                RL_hip_rotor:
                   {}
-              RL_hip_rotor:
-                {}
-              RR_hip:
-                RR_thigh:
-                  RR_calf:
-                    RR_foot:
-                      {}
-                  RR_calf_rotor:
-                    {}
-                RR_thigh_rotor:
+                RR_hip_rotor:
                   {}
-              RR_hip_rotor:
-                {}
-              front_camera:
-                {}
-              imu_link:
-                {}
-          sensor:
-            {}
-          sliding_map:
-            {}
+                front_camera:
+                  {}
+                imu_link:
+                  {}
+            imu:
+              {}
+            sliding_map:
+              {}
       Update Interval: 0
       Value: true
     - Class: rviz_default_plugins/Marker
@@ -570,10 +380,79 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /optimal_list
       Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: Intensity
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 1
+      Min Color: 0; 0; 0
+      Min Intensity: 2.3088504036309788e-23
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.15000000596046448
+      Style: Spheres
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /global_planner/raw_map
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz_default_plugins/Path
+      Color: 0; 0; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.10000000149011612
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /global_path
+      Value: true
+    - Class: rviz_default_plugins/Axes
+      Enabled: false
+      Length: 1
+      Name: Axes
+      Radius: 0.10000000149011612
+      Reference Frame: base
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: world
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:
@@ -599,6 +478,8 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /clicked_point
+    - Class: rviz_tools/Goal3DTool
+    - Class: rviz_tools/Pose3DTool
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -606,39 +487,39 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 31.07322120666504
+      Distance: 22.340662002563477
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
       Focal Point:
-        X: -4.47959041595459
-        Y: 1.29607355594635
-        Z: -8.791008949279785
+        X: -1.4636545181274414
+        Y: 4.242046356201172
+        Z: -4.672983646392822
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.0549992322921753
+      Pitch: 1.2547963857650757
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 2.970010995864868
+      Yaw: 5.448193550109863
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1472
+  Height: 1016
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd00000001000000000000032f00000524fc0200000004fb000000100044006900730070006c006100790073010000006e000005240000018200fffffffb0000001200530065006c0065006300740069006f006e000000031d00000135000000b000fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007300000003f900000199000000b000fffffffb0000000a00560069006500770073000000041b000001770000013200ffffff000006410000052400000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000001000000000000032f0000039efc0200000004fb000000100044006900730070006c006100790073010000003d0000039e000000c900fffffffb0000001200530065006c0065006300740069006f006e000000031d000001350000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007300000003f9000001990000005c00fffffffb0000000a00560069006500770073000000041b00000177000000a400ffffff000004050000039e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 2428
-  X: 132
-  Y: 54
+  Width: 1850
+  X: 70
+  Y: 27
