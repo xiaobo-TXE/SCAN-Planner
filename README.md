@@ -119,9 +119,21 @@ ros2 launch scan_planner run.launch.py \
 # 用 A2 档案（真机默认就是它，不写 robot:= 也一样）
 ros2 launch scan_planner run.launch.py robot:=a2
 
+# 换成 Go2 / Go2-W
+ros2 launch scan_planner run.launch.py robot:=go2
+ros2 launch scan_planner run.launch.py robot:=go2w
+
 # 不叠加任何档案，纯用通用默认（仿真常用）
 ros2 launch scan_planner run.launch.py robot:=none is_real_world:=false navi_mode:=1
 ```
+
+当前仓库自带三份档案：
+
+| 档案 | 依据 | 主要内容 |
+|---|---|---|
+| `a2.yaml` | 实机调试实测 | 机器人尺寸、速度上限、局部地图尺寸、真机话题名、初始位置 |
+| `go2.yaml` | [Go2 官方规格](https://www.unitree.com/go2)（站立 70×31×40 cm，约 15 kg，0~2.5/3.5/3.7 m/s） | 圆柱半径/偏移按车体尺寸换算、站立高度、速度上限 |
+| `go2w.yaml` | [Go2-W 官方规格](https://www.unitree.com/go2-w)（站立 70×43×50 cm，约 18 kg，0~2.5 m/s） | 同上（车体更宽更高，半径更大、偏移更小） |
 
 不显式指定 `robot:=` 时的规则：**真机（`is_real_world:=true`）默认用 `a2` 档案，仿真不叠加任何档案**。
 
