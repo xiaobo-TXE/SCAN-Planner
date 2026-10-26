@@ -203,7 +203,7 @@ namespace scan_planner
           Eigen::Vector3d horizon_dir = ((start_pt - local_target_pt).cross(Eigen::Vector3d(0, 0, 1))).normalized();
           // 再构造一个竖直方向单位向量
           Eigen::Vector3d vertical_dir = ((start_pt - local_target_pt).cross(horizon_dir)).normalized();
-          // 在中点附近随机偏一个点：失败次数越多，偏移幅度越小（收敛）
+          // 在中点附近随机偏一个点：失败次数越多，随机偏移越大（逐渐逼近设计幅度，加大探索力度）
           Eigen::Vector3d random_inserted_pt = (start_pt + local_target_pt) / 2 +
                                                (((double)rand()) / RAND_MAX - 0.5) * (start_pt - local_target_pt).norm() * horizon_dir * 0.8 * (-0.978 / (continuous_failures_count_ + 0.989) + 0.989) +
                                                (((double)rand()) / RAND_MAX - 0.5) * (start_pt - local_target_pt).norm() * vertical_dir * 0.4 * (-0.978 / (continuous_failures_count_ + 0.989) + 0.989);
