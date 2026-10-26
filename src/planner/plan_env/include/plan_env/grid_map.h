@@ -105,6 +105,14 @@ struct MappingParameters {
 // 机器人形状参数：圆柱半径、前后两个圆柱中心离机器人中心的距离
   // 机器人被抽象成"前后两个圆柱"：radius 是圆柱半径，offset 是两圆心离中心的距离
   double double_cylinder_radius_, double_cylinder_offset_;
+  // ---- footprint 模型（可切换，便于 A/B；默认仍用旧的双圆柱）----
+  //   0 = double_cylinder：前后两个圆柱 + 2 点查询（默认，行为不变）
+  //   1 = rectangle：机身真实矩形 + 多点采样（沿用外部给的 yaw）
+  // footprint_length_/width_：矩形长(前后)/宽(左右)；margin_：水平安全余量；
+  // footprint_sample_step_：矩形采样步长。单位均为米。
+  int footprint_model_{0};
+  double footprint_length_{0.0}, footprint_width_{0.0},
+      footprint_margin_{0.0}, footprint_sample_step_{0.1};
   // 是否启用滑动地图，以及“机器人移动多远才滑动一次”的阈值
   // map_sliding_thresh 单位是米；map_sliding_thresh_vox_ 是它换算成的格子数
   bool map_sliding_en_;
@@ -188,6 +196,8 @@ struct MappingData {
   std::vector<int> occupancy_buffer_inflate_cnt_;
   // 预计算的"膨胀偏移表"：机器人形状(双圆柱)对应的所有格子偏移，建一次反复用
   vector<Eigen::Vector3i> inflate_offsets_;
+  // rectangle 模式：机身坐标系下的采样点 (lx, ly, 0)，建一次反复用
+  std::vector<Eigen::Vector3d> footprint_samples_;
 
   // raycast origin and sensor pose data
   /* ---------- 射线起点 / 传感器位姿 ---------- */
@@ -389,6 +399,8 @@ private:
 // 预计算“膨胀偏移表”：一次算好圆柱形状对应的一堆格点偏移，
 // 之后每次膨胀直接查表，速度快很多。
   void rebuildInflationOffsets();
+  // 预计算 rectangle 模式的机身采样点（footprint_model_==1 时用）
+  void rebuildFootprintSamples();
   // 更新某格的膨胀层：按偏移表给周围格计数 += delta
   void updateInflation(const Eigen::Vector3i& id, int delta, const std::vector<char>* ignore_mask = nullptr);
   // 膨胀层核心：遍历偏移表，引用计数 cnt += delta，cnt>0 则标志置 1
@@ -556,6 +568,19 @@ inline int GridMap::getOccupancy(Eigen::Vector3d pos) {
 //   ③ 前圆柱没事再查后圆柱
 // 返回 1=障碍 / 0=空 / -1=出图。注意：调用方常写 if(返回值)，所以 -1 也会被当成"会撞"。
 inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos, double yaw) {
+  // 【矩形多点采样】footprint_model_==1：按 yaw 旋转机身矩形，在矩形上采样查询
+  if (mp_.footprint_model_ == 1) {
+    const double c = std::cos(yaw), s = std::sin(yaw);
+    for (const auto &sp : md_.footprint_samples_) {
+      Eigen::Vector3d p(pos(0) + c * sp(0) - s * sp(1),
+                        pos(1) + s * sp(0) + c * sp(1), pos(2));
+      int occ = getInflateOccupancyFromBuffer(p, md_.occupancy_buffer_inflate_);
+      if (occ != 0) return occ;
+    }
+    return 0;
+  }
+
+  // 【默认：双圆柱】前后两个圆心，只查 2 个点
   Eigen::Vector3d heading(std::cos(yaw), std::sin(yaw), 0.0);
   Eigen::Vector3d front = pos + mp_.double_cylinder_offset_ * heading;
   Eigen::Vector3d rear = pos - mp_.double_cylinder_offset_ * heading;

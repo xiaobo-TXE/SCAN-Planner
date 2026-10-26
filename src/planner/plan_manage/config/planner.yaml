@@ -66,6 +66,11 @@ scan_planner_node:
     grid_map.double_cylinder_radius: 0.25
     # 两个圆柱中心离机器人中心的距离(米)。所以圆柱中心分别在前后 0.18 米处。
     grid_map.double_cylinder_offset: 0.18
+    # footprint 模型：0 = 前后两个圆柱(默认)，1 = 机身矩形多点采样。
+    # 两种模型都复用外部给的朝向 yaw；切换只影响碰撞检测方式与膨胀半径。
+    grid_map.footprint_model: 0
+    # 矩形模式下的采样步长(米)：0.1 约 60 点/次；越小越准、查询越多
+    grid_map.footprint_sample_step: 0.1
     grid_map.body_height: 0.4
     # 膨胀在竖直方向的范围：向上 0.1 米、向下 0.4 米（下方的障碍更危险）
     grid_map.obstacles_inflation_z_up: 0.1

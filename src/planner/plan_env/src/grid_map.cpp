@@ -63,6 +63,12 @@ void GridMap::initMap(rclcpp::Node *node)
   load_parameter(node_, "grid_map.obstacles_inflation_z_down", mp_.obstacles_inflation_z_down, -1.0);
   load_parameter(node_, "grid_map.double_cylinder_radius", mp_.double_cylinder_radius_, -1.0);
   load_parameter(node_, "grid_map.double_cylinder_offset", mp_.double_cylinder_offset_, 0.0);
+  // footprint 模型选择（0=双圆柱[默认]，1=矩形多点采样）+ 矩形参数
+  load_parameter(node_, "grid_map.footprint_model", mp_.footprint_model_, 0);
+  load_parameter(node_, "grid_map.footprint_length", mp_.footprint_length_, 0.0);
+  load_parameter(node_, "grid_map.footprint_width", mp_.footprint_width_, 0.0);
+  load_parameter(node_, "grid_map.footprint_margin", mp_.footprint_margin_, 0.06);
+  load_parameter(node_, "grid_map.footprint_sample_step", mp_.footprint_sample_step_, 0.1);
   load_parameter(node_, "grid_map.map_sliding_en", mp_.map_sliding_en_, true);
   load_parameter(node_, "grid_map.map_sliding_thresh", mp_.map_sliding_thresh_, mp_.resolution_);
 
@@ -170,6 +176,7 @@ void GridMap::initMap(rclcpp::Node *node)
   md_.occupancy_buffer_inflate_ = vector<char>(buffer_size, 0);
   md_.occupancy_buffer_inflate_cnt_ = vector<int>(buffer_size, 0);
   rebuildInflationOffsets();
+  rebuildFootprintSamples();
 
   // 光线遍历用的临时计数与标记（每帧会复位）
   md_.count_hit_and_miss_ = vector<short>(buffer_size, 0);
@@ -278,8 +285,11 @@ void GridMap::updateMapBoundaryFromIndex()
 void GridMap::rebuildInflationOffsets()
 {
   // 圆柱半径，以及它在 xy 平面、上下 z 方向各占多少格
-  const double double_radius = std::max(0.0, mp_.double_cylinder_radius_);
-  const int inf_step_xy = ceil(double_radius / mp_.resolution_);
+  // 圆柱模式用满半径做大膨胀；矩形模式只用小余量（机身由采样点自己覆盖）
+  const bool rect_model = (mp_.footprint_model_ == 1);
+  const double xy_radius = rect_model ? std::max(0.0, mp_.footprint_margin_)
+                                      : std::max(0.0, mp_.double_cylinder_radius_);
+  const int inf_step_xy = ceil(xy_radius / mp_.resolution_);
   const int inf_step_z_up = ceil(mp_.obstacles_inflation_z_up / mp_.resolution_);
   const int inf_step_z_down = ceil(mp_.obstacles_inflation_z_down / mp_.resolution_);
 
@@ -291,12 +301,44 @@ void GridMap::rebuildInflationOffsets()
     {
       // 换算成米，判断它离中心是否小于半径
       Eigen::Vector2d offset_xy(x * mp_.resolution_, y * mp_.resolution_);
-      if (offset_xy.norm() >= double_radius)
+      // 圆柱模式保持原判据(< radius)；矩形模式含边界(<= radius)，保证 margin=0 时仍保留 (0,0)
+      const double nrm = offset_xy.norm();
+      if (rect_model ? (nrm > xy_radius + 1e-9) : (nrm >= xy_radius))
         continue;
 
       // z 方向按“上膨胀 / 下膨胀”两个不同高度遍历（上下不对称）
       for (int z = -inf_step_z_down; z <= inf_step_z_up; ++z)
         md_.inflate_offsets_.push_back(Eigen::Vector3i(x, y, z));
+    }
+}
+
+// 预计算 rectangle 模式的机身采样点（机身坐标系：x 向前、y 向左）。
+// 在 L×W 的矩形上按 step 取网格（含四边与内部），保证不漏掉细障碍。
+void GridMap::rebuildFootprintSamples()
+{
+  md_.footprint_samples_.clear();
+  if (mp_.footprint_model_ != 1)
+    return;
+
+  const double L = std::max(0.0, mp_.footprint_length_);
+  const double W = std::max(0.0, mp_.footprint_width_);
+  const double step = std::max(1e-3, mp_.footprint_sample_step_);
+  if (L <= 0.0 || W <= 0.0)
+  {
+    RCLCPP_WARN(rclcpp::get_logger("grid_map"),
+                "rectangle footprint enabled but length/width not set; no samples");
+    return;
+  }
+
+  const int nx = std::max(1, (int)std::ceil(L / step)) + 1;  // 含两端
+  const int ny = std::max(1, (int)std::ceil(W / step)) + 1;
+  md_.footprint_samples_.reserve(nx * ny);
+  for (int i = 0; i < nx; ++i)
+    for (int j = 0; j < ny; ++j)
+    {
+      const double lx = -L / 2.0 + L * (nx > 1 ? double(i) / (nx - 1) : 0.5);
+      const double ly = -W / 2.0 + W * (ny > 1 ? double(j) / (ny - 1) : 0.5);
+      md_.footprint_samples_.push_back(Eigen::Vector3d(lx, ly, 0.0));
     }
 }
 

@@ -52,6 +52,14 @@ scan_planner_node:
     #   z_down = 机身顶 − h_c + 0.05 = 0.24（管上边界）
     grid_map.obstacles_inflation_z_up: 0.16
     grid_map.obstacles_inflation_z_down: 0.24
+    # footprint 模型（0=双圆柱[默认]，1=矩形多点采样）——用于 A/B 对比
+    grid_map.footprint_model: 0
+    # 矩形模式参数：机身长(前后)/宽(左右) + 水平安全余量 + 采样步长(米)
+    # margin 取 >= 步长一半，避免采样点之间的缝隙漏掉细障碍
+    grid_map.footprint_length: 0.82
+    grid_map.footprint_width: 0.44
+    grid_map.footprint_margin: 0.06
+    grid_map.footprint_sample_step: 0.1
 
 closed_loop_controller:
   ros__parameters:
