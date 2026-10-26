@@ -54,6 +54,17 @@ public:
     max_vyaw_ = std::min(declare_parameter<double>("max_vyaw", 1.0), kMaxVYawLimit);
     // 到终点多近就算“到达”，可以停下
     finish_dist_ = declare_parameter<double>("finish_dist", 0.15);
+    // ---- 卡住检测 + 刹停 + 脱困 ----
+    // “想动(指令速度 > stuck_cmd_eps) 但实测速度 < stuck_speed_eps” 判为卡住
+    stuck_cmd_eps_ = declare_parameter<double>("stuck_cmd_eps", 0.15);
+    stuck_speed_eps_ = declare_parameter<double>("stuck_speed_eps", 0.03);
+    // 连续卡住超过这个时间(秒) → 触发一次脱困动作（卡住期间先刹停）
+    stuck_time_ = declare_parameter<double>("stuck_time", 1.0);
+    // 脱困开关 / 每次动作持续时间(秒) / 后退或横移速度 / 原地转向角速度
+    escape_enabled_ = declare_parameter<bool>("escape_enabled", true);
+    escape_duration_ = declare_parameter<double>("escape_duration", 0.6);
+    escape_speed_ = declare_parameter<double>("escape_speed", 0.2);
+    escape_yaw_rate_ = declare_parameter<double>("escape_yaw_rate", 0.5);
 
     // 订阅规划器发布的轨迹
     bspline_sub_ = create_subscription<scan_planner_msgs::msg::Bspline>(
@@ -127,6 +138,16 @@ private:
     cmd_vel_pub_->publish(cmd);
   }
 
+  // 发布脱困速度指令（机体系：vx 前进/后退、vy 横移、wz 转向），各分量夹到限幅内
+  void publishEscape(double vx, double vy, double wz)
+  {
+    geometry_msgs::msg::Twist cmd;
+    cmd.linear.x = std::clamp(vx, -max_vx_, max_vx_);
+    cmd.linear.y = std::clamp(vy, -max_vy_, max_vy_);
+    cmd.angular.z = std::clamp(wz, -max_vyaw_, max_vyaw_);
+    cmd_vel_pub_->publish(cmd);
+  }
+
   // 把“我正在原地转向、请规划器暂停轨迹”这个信号发出去（true/false）。
   // 发布“冻结”信号（true=正在原地转向，请规划器暂停轨迹时钟）
   void publishExecutionFrozen(bool frozen)
@@ -188,6 +209,8 @@ private:
     odom_pos_ << msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z;
     // 当前朝向（把四元数转成偏航角）
     odom_yaw_ = tf2::getYaw(msg->pose.pose.orientation);
+    // 实测速度（机体系线速度的模）：用于“卡住检测”
+    odom_speed_ = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
     // 标记“已收到里程计”
     have_odom_ = true;
   }
@@ -206,6 +229,16 @@ private:
       publishExecutionFrozen(false);
       // 发停车指令
       publishStop();
+      return;
+    }
+
+    const auto now_t = now();
+    // ---- 脱困动作进行中：直接执行脱困指令，覆盖轨迹跟踪 ----
+    if (now_t < escape_until_)
+    {
+      publishExecutionFrozen(false);
+      publishEscape(escape_cmd_.linear.x, escape_cmd_.linear.y, escape_cmd_.angular.z);
+      last_update_time_ = now_t;
       return;
     }
     // 当前时间
@@ -266,6 +299,37 @@ private:
     if (exec_time_ >= traj_duration_ && pos_error.norm() < finish_dist_)
       // 发全 0 指令 → 停住
       command = geometry_msgs::msg::Twist();
+
+    // ---- 卡住检测：想动(指令速度够大)但实测几乎不动 → 先刹停，久则脱困 ----
+    const bool intend_move = std::abs(command.linear.x) > stuck_cmd_eps_ ||
+                             std::abs(command.linear.y) > stuck_cmd_eps_;
+    const bool moving = odom_speed_ > stuck_speed_eps_;
+    if (escape_enabled_ && intend_move && !moving)
+    {
+      if (stuck_since_.nanoseconds() == 0) stuck_since_ = current_time;
+      if ((current_time - stuck_since_).seconds() > stuck_time_)
+      {
+        // 轮换脱困动作：后退 / 原地左转 / 横移左 / 原地右转 / 横移右
+        escape_idx_ = (escape_idx_ + 1) % 5;
+        escape_cmd_ = geometry_msgs::msg::Twist();
+        switch (escape_idx_)
+        {
+          case 0: escape_cmd_.linear.x = -escape_speed_; break;    // 后退
+          case 1: escape_cmd_.angular.z = escape_yaw_rate_; break; // 原地左转
+          case 2: escape_cmd_.linear.y = escape_speed_; break;     // 横移左
+          case 3: escape_cmd_.angular.z = -escape_yaw_rate_; break;// 原地右转
+          default: escape_cmd_.linear.y = -escape_speed_; break;   // 横移右
+        }
+        escape_until_ = current_time + rclcpp::Duration::from_seconds(escape_duration_);
+        stuck_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+        RCLCPP_WARN(get_logger(), "Robot stuck (intend move but odom_speed=%.3f m/s); escape action #%d",
+                    odom_speed_, escape_idx_);
+      }
+      // 卡住期间先刹停，别继续满速顶
+      publishStop();
+      return;
+    }
+    stuck_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
     // 发布速度指令
     cmd_vel_pub_->publish(command);
   }
@@ -286,6 +350,16 @@ private:
   rclcpp::Time last_update_time_{0, 0, RCL_ROS_TIME};
   double time_forward_, heading_error_threshold_, kp_pos_, kp_yaw_;
   double max_vx_, max_vy_, max_vyaw_, finish_dist_;
+  // ---- 卡住检测 + 脱困 ----
+  rclcpp::Time stuck_since_{0, 0, RCL_ROS_TIME};      // 开始卡住的时刻(0=未卡住)
+  rclcpp::Time escape_until_{0, 0, RCL_ROS_TIME};     // 脱困动作结束时刻
+  geometry_msgs::msg::Twist escape_cmd_;              // 当前脱困指令
+  int escape_idx_{0};                                 // 脱困动作轮换索引
+  bool escape_enabled_{true};
+  double odom_speed_{0.0};                            // 实测速度(来自 odom twist)
+  double stuck_cmd_eps_{0.15}, stuck_speed_eps_{0.03};// 卡住判据阈值
+  double stuck_time_{1.0}, escape_duration_{0.6},
+      escape_speed_{0.2}, escape_yaw_rate_{0.5};
 };
 }  // namespace scan_planner
 

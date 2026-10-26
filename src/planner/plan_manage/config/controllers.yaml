@@ -24,6 +24,17 @@ closed_loop_controller:
     max_vyaw: 1.0
     # 距离终点小于这个值(米)且已走完轨迹，就发“停下”。
     finish_dist: 0.15
+    # ---- 卡住检测 / 刹停 / 脱困 ----
+    # “想动(指令速度 > stuck_cmd_eps) 但实测速度 < stuck_speed_eps” 判为卡住
+    stuck_cmd_eps: 0.15
+    stuck_speed_eps: 0.03
+    # 连续卡住超过这个时间(秒) → 触发一次脱困；卡住期间先刹停，不再满速顶
+    stuck_time: 1.0
+    # 脱困动作轮换：后退 → 原地左转 → 横移左 → 原地右转 → 横移右
+    escape_enabled: true
+    escape_duration: 0.6
+    escape_speed: 0.2
+    escape_yaw_rate: 0.5
 
 # ---- 开环控制器 open_loop_controller ----
 # 它不控制机器人，只把轨迹直接当成里程计发出去（理想执行）。
