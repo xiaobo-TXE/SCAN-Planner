@@ -49,8 +49,6 @@ namespace scan_planner
     double local_start_time_, local_end_time_;
     double time_increase_;
     double last_time_inc_;
-    // 上次取“局部目标点”时，全局轨迹已经推进到的时间
-    double last_progress_time_;
 
     GlobalTrajData(/* args */) {}
 
@@ -72,7 +70,6 @@ namespace scan_planner
       local_end_time_ = -1;
       time_increase_ = 0.0;
       last_time_inc_ = 0.0;
-      last_progress_time_ = 0.0;
     }
 
     // 把某一段局部 B 样条记录进来（同时对它求导得到速度和加速度两条样条）

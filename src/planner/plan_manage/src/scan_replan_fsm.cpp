@@ -482,7 +482,6 @@ namespace scan_planner
         end_pt_ = pt;
         // 把全局轨迹时长缩短到这一点（相当于提前结束）
         global_data.global_duration_ = t;
-        global_data.last_progress_time_ = std::min(global_data.last_progress_time_, t);
         // 打警告：原目标被占，改用新终点
         RCLCPP_WARN(node_->get_logger(),
                     "Target [%.2f, %.2f, %.2f] is occupied; using [%.2f, %.2f, %.2f]",
@@ -1630,8 +1629,6 @@ namespace scan_planner
       }
       prev_pos = pos_t;
     }
-    // 把“进度时间”记成局部目标时刻，保证下一轮从这里继续（不会回头看）
-    planner_manager_->global_data_.last_progress_time_ = target_found ? target_t : duration;
 
     // 小工具：查询某个点是否被障碍占据（查询时带上朝向）
     auto targetOccupancy = [&](const Eigen::Vector3d &pt) {
