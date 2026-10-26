@@ -93,6 +93,10 @@ namespace scan_planner
     enable_fail_safe_ = load_parameter<bool>(node_, "fsm.fail_safe", true);
     // 连续规划失败超过这个次数 → 强制急停
     max_replan_fail_count_ = load_parameter<int>(node_, "fsm.max_replan_fail_count", 1000);
+    // 连续重规划失败时的“换状态”恢复：阈值与清图半径
+    replan_recovery_count_ = load_parameter<int>(node_, "fsm.replan_recovery_count", 20);
+    replan_recovery_clear_radius_ =
+        load_parameter<double>(node_, "fsm.replan_recovery_clear_radius", 3.0);
     // 下面几个是机器人外形尺寸（用于画自身膨胀 + 碰撞检测）
     self_inflation_z_up_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_up", 0.0);
     self_inflation_z_down_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_down", 0.0);
@@ -882,8 +886,8 @@ namespace scan_planner
         }
         else
       {
-        replan_fail_count_++;
-        changeFSMExecState(GEN_NEW_TRAJ, "FSM");
+        // 连续失败达到阈值时，先尝试一次“换状态”的恢复（清图 + 随机猜测）
+        handleReplanFailure(GEN_NEW_TRAJ);
       }
       }
       break;
@@ -926,9 +930,8 @@ namespace scan_planner
         }
         else
       {
-        // 失败 → 计数 +1，保持重规划状态继续尝试
-        replan_fail_count_++;
-        changeFSMExecState(REPLAN_TRAJ, "FSM");
+        // 失败 → 计数 +1；达到阈值时先尝试一次“换状态”的恢复
+        handleReplanFailure(REPLAN_TRAJ);
       }
       }
 
@@ -1076,6 +1079,49 @@ namespace scan_planner
     // 第四步：发布调试数据（带当前时间戳）
     data_disp_.header.stamp = node_->now();
     data_disp_pub_->publish(data_disp_);
+  }
+
+  // 重规划失败后的统一处理：失败计数 +1；每累计到阈值就尝试一次“换状态”的恢复。
+  // 恢复成功 → 直接进入执行；否则回到 retry_state 继续尝试。
+  void SCANReplanFSM::handleReplanFailure(FSM_EXEC_STATE retry_state)
+  {
+    replan_fail_count_++;
+    if (replan_recovery_count_ > 0 && replan_fail_count_ % replan_recovery_count_ == 0 &&
+        tryFailureRecovery())
+    {
+      replan_fail_count_ = 0;
+      changeFSMExecState(EXEC_TRAJ, "RECOVERY");
+      return;
+    }
+    changeFSMExecState(retry_state, "FSM");
+  }
+
+  // 连续重规划失败时的“换状态”恢复。两步，目的都是让下一轮规划面对一个不同的局面：
+  //   1) 清掉机器人周围一小块局部栅格 —— 陈旧的占据点（自身回波、已经离开的障碍、
+  //      地面点误判）会让起点一直被判定为障碍，A* 和优化都会直接失败；
+  //   2) 以当前实测状态为起点、用随机初始猜测再规划一次 —— 这是专门用来跳出
+  //      局部卡死的开关；成功就继续走，失败则交回调用方继续计数。
+  bool SCANReplanFSM::tryFailureRecovery()
+  {
+    auto map = planner_manager_->grid_map_;
+    const double radius = replan_recovery_clear_radius_;
+    if (map && radius > 0.0)
+    {
+      const Eigen::Vector3d lo = odom_pos_ - Eigen::Vector3d(radius, radius, radius);
+      const Eigen::Vector3d hi = odom_pos_ + Eigen::Vector3d(radius, radius, radius);
+      map->resetBuffer(lo, hi);
+    }
+
+    start_pt_ = odom_pos_;
+    start_vel_ = odom_vel_;
+    start_acc_.setZero();
+
+    RCLCPP_WARN(node_->get_logger(),
+                "[RECOVERY] %d consecutive replan failures: cleared %.1f m around the robot, "
+                "retrying with a random initial guess",
+                replan_fail_count_, radius);
+
+    return callReboundReplan(true, true);
   }
 
   // 每轮主循环结束后的收尾：如果连续规划失败次数太多，就强制进入紧急停止。
