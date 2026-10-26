@@ -117,7 +117,7 @@ scan_planner_node:
     optimization.lambda_collision: 1.0
     # lambda_feasibility：动力学可行性（别超速/超加速度）
     optimization.lambda_feasibility: 0.1
-    optimization.lambda_fitness: 1.0
+    optimization.lambda_fitness: 5.0
     # dist0：期望的安全距离(米)——离障碍至少留这么远才开始“不惩罚”
     optimization.dist0: 0.2
     optimization.max_vel: 0.75
