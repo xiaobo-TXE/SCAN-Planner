@@ -38,12 +38,20 @@ scan_planner_node:
     grid_map.sliding_map_size_z: 4.0
     grid_map.local_update_range_x: 4.0
     grid_map.local_update_range_y: 4.0
-    # 机器人形态（实机 A2 实测取值）：
-    #   body_height 取 0，前后两个碰撞圆柱中心各偏移 0.3 米，
-    #   竖直向下只需膨胀 0.1 米。
+    # 机器人形态（按宇树官方 A2 站立尺寸换算，https://www.unitree.com/mobile/A2/）
+    #   官方站立 L×W×H = 0.82 × 0.44 × 0.57 m，最大台阶 0.30 m。
+    #   双圆柱（覆盖机身站立投影，并留 2 cm 水平余量）：
+    #     d_off = L/4 = 0.205
+    #     d_xy  = hypot(L/4, W/2) + 0.02 = 0.301 + 0.02 = 0.32
     grid_map.body_height: 0.0
-    grid_map.double_cylinder_offset: 0.3
-    grid_map.obstacles_inflation_z_down: 0.1
+    grid_map.double_cylinder_radius: 0.32
+    grid_map.double_cylinder_offset: 0.205
+    # 竖直膨胀（注意：参数名与论文的 d_up/d_down 相反，按代码口径填）：
+    #   保护区间 = [h_c − z_up, h_c + z_down]，h_c ≈ 0.46（正下方点云实测 0.44~0.46）
+    #   z_up   = h_c − 台阶 = 0.16    （管下边界）
+    #   z_down = 机身顶 − h_c + 0.05 = 0.24（管上边界）
+    grid_map.obstacles_inflation_z_up: 0.16
+    grid_map.obstacles_inflation_z_down: 0.24
 
 closed_loop_controller:
   ros__parameters:
