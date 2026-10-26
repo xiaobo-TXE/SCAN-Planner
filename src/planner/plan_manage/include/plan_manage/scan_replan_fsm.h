@@ -124,6 +124,10 @@ namespace scan_planner
     int continuously_called_times_{0};
     int replan_fail_count_{0};
     int max_replan_fail_count_{1000};
+    // 连续重规划失败时的“换状态”恢复：每失败这么多次尝试一次
+    int replan_recovery_count_{20};
+    // 恢复时清掉机器人周围多大范围的局部栅格(米)
+    double replan_recovery_clear_radius_{3.0};
     rclcpp::Time last_freeze_update_time_;
 
     Eigen::Vector3d odom_pos_, odom_vel_, odom_acc_; // odometry state
@@ -165,6 +169,10 @@ namespace scan_planner
     /* helper functions */
     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj); // front-end and back-end method
     bool callEmergencyStop(Eigen::Vector3d stop_pos);                          // front-end and back-end method
+    // 重规划失败后的统一处理：失败计数 +1；达到阈值时尝试一次“换状态”的恢复
+    void handleReplanFailure(FSM_EXEC_STATE retry_state);
+    // 恢复动作：清掉机器人周围的局部栅格 → 用随机初始猜测再规划一次
+    bool tryFailureRecovery();
     bool planFromCurrentTraj();
     void setStartStateFromOdomOrCurrentTraj();
 

@@ -30,6 +30,12 @@ scan_planner_node:
     fsm.fail_safe: true
     # 连续规划失败超过这个次数，就强制进入紧急停止
     fsm.max_replan_fail_count: 1000
+    # 连续重规划失败达到这个次数时，先做一次“换状态”的恢复再继续重试：
+    #   清掉机器人周围一小块局部栅格 → 用随机初始猜测再规划一次
+    # 设成 0 表示关闭这个恢复逻辑。
+    fsm.replan_recovery_count: 20
+    # 恢复时清掉机器人周围多大范围的局部栅格(米)
+    fsm.replan_recovery_clear_radius: 3.0
 
     # 下面四项只在 navi_mode=3（参考路径）下生效，用来判断"参考坐标系"是否还可信。
     # 参考路径写在地图系/参考系下，规划时要靠 TF 把它换算到 world 系；
