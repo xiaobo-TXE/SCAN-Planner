@@ -56,6 +56,11 @@ public:
     finish_dist_ = declare_parameter<double>("finish_dist", 0.15);
     // 参考时刻前瞻(秒)：参考点比“机器人投影时刻”略微靠前，保住前馈速度不为 0
     time_lead_ = declare_parameter<double>("time_lead", 0.2);
+    // 卡住检测：指令想动(速度 > stuck_cmd_eps)但实测几乎不动(速度 < stuck_speed_eps)，
+    // 持续超过 stuck_time 秒 → 判为卡住：刹停 + 发 freeze=true 让规划器同步暂停轨迹时钟
+    stuck_cmd_eps_ = declare_parameter<double>("stuck_cmd_eps", 0.15);
+    stuck_speed_eps_ = declare_parameter<double>("stuck_speed_eps", 0.03);
+    stuck_time_ = declare_parameter<double>("stuck_time", 1.0);
 
     // 订阅规划器发布的轨迹
     bspline_sub_ = create_subscription<scan_planner_msgs::msg::Bspline>(
@@ -210,6 +215,8 @@ private:
     odom_pos_ << msg->pose.pose.position.x, msg->pose.pose.position.y, msg->pose.pose.position.z;
     // 当前朝向（把四元数转成偏航角）
     odom_yaw_ = tf2::getYaw(msg->pose.pose.orientation);
+    // 实测速度（机体系线速度的模），用于卡住检测
+    odom_speed_ = std::hypot(msg->twist.twist.linear.x, msg->twist.twist.linear.y);
     // 标记“已收到里程计”
     have_odom_ = true;
   }
@@ -290,6 +297,28 @@ private:
     if (exec_time_ >= traj_duration_ && pos_error.norm() < finish_dist_)
       // 发全 0 指令 → 停住
       command = geometry_msgs::msg::Twist();
+
+    // ---- 卡住检测：指令想动但实测几乎不动，持续超过 stuck_time → 判卡住 ----
+    //   处理：刹停 + 发 freeze=true，让规划器把轨迹时钟一并暂停；不再满速顶
+    const bool intend_move = std::abs(command.linear.x) > stuck_cmd_eps_ ||
+                             std::abs(command.linear.y) > stuck_cmd_eps_;
+    const bool moving = odom_speed_ > stuck_speed_eps_;
+    if (intend_move && !moving)
+    {
+      if (stuck_since_.nanoseconds() == 0) stuck_since_ = current_time;
+      if ((current_time - stuck_since_).seconds() > stuck_time_)
+      {
+        RCLCPP_WARN(get_logger(), "Robot stuck (intend move but odom_speed=%.3f m/s); freeze reference",
+                    odom_speed_);
+        publishExecutionFrozen(true);
+        publishStop();
+        return;
+      }
+    }
+    else
+    {
+      stuck_since_ = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }
     // 发布速度指令
     cmd_vel_pub_->publish(command);
   }
@@ -306,10 +335,13 @@ private:
   std::int64_t traj_id_{0};
   Eigen::Vector3d odom_pos_{Eigen::Vector3d::Zero()};
   double odom_yaw_{0.0};
+  double odom_speed_{0.0};
   double exec_time_{0.0};
   rclcpp::Time last_update_time_{0, 0, RCL_ROS_TIME};
+  rclcpp::Time stuck_since_{0, 0, RCL_ROS_TIME};
   double time_forward_, time_lead_, heading_error_threshold_, kp_pos_, kp_yaw_;
   double max_vx_, max_vy_, max_vyaw_, finish_dist_;
+  double stuck_cmd_eps_, stuck_speed_eps_, stuck_time_;
 };
 }  // namespace scan_planner
 
