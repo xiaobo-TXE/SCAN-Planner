@@ -41,13 +41,15 @@ DIAG_TOPICS=(
   # --- 基础 ---
   /tf /tf_static /rosout
   # --- 定位 ---
-  /loc/robo/odom /loc/odom /loc/status /loc/map /loc/keyframes /loc/submap
-  /lio/robo/odom /lio/imu/odom
+  /loc/robo/odom /loc/odom /loc/odom_raw /loc/status /loc/map /loc/keyframes /loc/submap
+  /loc/imu/odom /loc/imu/robo/odom
+  /lio/robo/odom /lio/imu/odom /lio/odom /lio/path
   # --- 建图 ---
   /lio/cloud_world
-  /grid_map/occupancy /grid_map/occupancy_inflate /grid_map/sliding_map_bbox /grid_map/depth_cloud
+  /grid_map/occupancy /grid_map/occupancy_inflate /grid_map/unknown
+  /grid_map/sliding_map_bbox /grid_map/depth_cloud /grid_map/sensor_pose_extrinsic
   # --- 全局规划 ---
-  /global_path /global_planner/raw_map /global_planner/map /move_base_simple/goal
+  /global_path /global_planner/raw_map /goal_3d /goal_point
   # --- 局部规划 ---
   /planning/bspline /local_path /planning/data_display /self_inflation /planning/go2_execution_frozen
   # --- 控制 ---
@@ -128,8 +130,9 @@ precheck() {
   log "---- 关键话题频率 ----"
   for t in /loc/status /loc/robo/odom /lio/cloud_world /planning/bspline /cmd_vel; do
     printf '%s\n' "$all_topics" | grep -qx "$t" || continue
-    printf '  %-24s ' "$t"
-    timeout 3 ros2 topic hz "$t" 2>&1 | grep -m1 'average rate' || echo '(3s 内无数据)'
+    local rate
+    rate="$(timeout 3 ros2 topic hz "$t" 2>&1 | grep -m1 'average rate')"
+    printf '  %-24s %s\n' "$t" "${rate:-（3s 内无数据）}"
   done
   if printf '%s\n' "$all_topics" | grep -qx /loc/status; then
     printf '  /loc/status state  '
