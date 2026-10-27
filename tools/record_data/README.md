@@ -35,9 +35,13 @@ bash record_run.sh run1 --storage mcap
 
 # 运行中标注事件（另开终端）
 bash record_run.sh --event "点目标A"
+
+# 自动标注"卡住/恢复"（无需手按：订阅 cmd_vel + odom，按"想走不动"判据触发）
+bash record_run.sh stair_corner --auto-events
 ```
 
-可用环境变量覆盖：`NAV_WS` / `LOCAL_WS` / `BAG_ROOT`（默认 `~/bags`）/ `ROS_DOMAIN_ID`（默认 0）。
+可用环境变量覆盖：`NAV_WS` / `LOCAL_WS` / `BAG_ROOT`（默认 `~/bags`）/ `ROS_DOMAIN_ID`（默认 0）
+/ `AUTO_CMD_TOPIC`（默认 `/cmd_vel`）/ `AUTO_ODOM_TOPIC`（默认 `/loc/robo/odom`）。
 
 ## 行为
 
@@ -48,6 +52,16 @@ bash record_run.sh --event "点目标A"
 - 停止用 **SIGINT 转发**（等同 Ctrl-C 一次），让 rosbag 正常 finalize；
 - 录后自动 `ros2 bag info`，**逐话题核对 Count 并列出缺失/为 0 的话题**，
   写 `meta.yaml`、追加 `$BAG_ROOT/INDEX.md`，收拢 `~/.ros/log/maploc`、`loc_tum.txt`、`match.csv`。
+
+### `--auto-events`（自动事件标注）
+与录制同时启动 `auto_event_pub.py`，每 0.2 s 判断一次：
+
+- **想走**：`max(|cmd.vx|, |cmd.vy|) > 0.15`（`/cmd_vel`）
+- **在动**：最近 0.5 s 内的**平均位移速度** > `0.03 m/s`（用 `/loc/robo/odom` 位置差分，比 twist 稳）
+- 持续 > `1.0 s`"想走但不动" → 发 `/test_event` `AUTO:stuck`；恢复运动 → `AUTO:move`
+
+阈值/话题可用 `--cmd-eps` / `--speed-eps` / `--stuck-time` / `--window`（见 `auto_event_pub.py`）
+及环境变量 `AUTO_CMD_TOPIC` / `AUTO_ODOM_TOPIC` 调整。事件日志写在 `$BAG_ROOT/auto_events.log`。
 
 ## 话题清单（按 A2 名；真机核对后请改 `DIAG_TOPICS`）
 

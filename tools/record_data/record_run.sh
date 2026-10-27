@@ -12,6 +12,7 @@
 #   bash record_run.sh <标签> --points --duration 20
 #   bash record_run.sh <标签> --no-compress       # 不压缩（默认 zstd）
 #   bash record_run.sh <标签> --storage mcap      # 换 mcap 存储（默认 sqlite3）
+#   bash record_run.sh <标签> --auto-events       # 自动标注"卡住/恢复"（无需手按）
 #   bash record_run.sh --check                    # 只做"录前自检"，不录
 #   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
 #
@@ -29,6 +30,9 @@ BAG_ROOT="${BAG_ROOT:-$HOME/bags}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 QOS_FILE="$BAG_ROOT/qos_overrides.yaml"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# --auto-events 用的话题（真机不同就覆盖）
+AUTO_CMD_TOPIC="${AUTO_CMD_TOPIC:-/cmd_vel}"
+AUTO_ODOM_TOPIC="${AUTO_ODOM_TOPIC:-/loc/robo/odom}"
 
 # ---------------------------------------------------------------------------
 # 话题清单（按 A2 真机话题名；真机恢复后请用 `ros2 topic list` 核一遍再定稿）
@@ -191,7 +195,7 @@ META
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
-MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=1; POINTS=0; EVENT_MSG=""
+MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=1; POINTS=0; EVENT_MSG=""; AUTO_EVENTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)       MODE="check" ;;
@@ -200,7 +204,8 @@ while [ $# -gt 0 ]; do
     --duration)    DURATION="${2:-}"; shift ;;
     --storage)     STORAGE="${2:-sqlite3}"; shift ;;
     --no-compress) COMPRESS=0 ;;
-    -h|--help)     sed -n '2,30p' "$0"; exit 0 ;;
+    --auto-events) AUTO_EVENTS=1 ;;
+    -h|--help)     sed -n '2,24p' "$0"; exit 0 ;;
     -*)            echo "未知参数：$1"; exit 1 ;;
     *)             LABEL="$1" ;;
   esac
@@ -246,8 +251,24 @@ REC_ARGS=(--qos-profile-overrides-path "$QOS_FILE" --storage "$STORAGE")
 
 log "开始录制 → $BAG_PATH"
 log "话题数：${#TOPICS[@]}  storage=$STORAGE  压缩=$COMPRESS  时长=${DURATION:-手动(Ctrl-C)}"
-log "事件标注：另开终端执行  bash $0 --event \"goal A\""
+if [ "$AUTO_EVENTS" = 1 ]; then
+  log "自动事件标注：开（cmd=$AUTO_CMD_TOPIC odom=$AUTO_ODOM_TOPIC）"
+else
+  log "事件标注：另开终端执行  bash $0 --event \"goal A\"（或加 --auto-events 自动标注）"
+fi
 log "---------------------------------------------------------"
+
+# 启动"自动卡住/恢复"标注（订阅 cmd_vel + odom，命中判据就往 /test_event 发标注）
+AUTOPID=""
+if [ "$AUTO_EVENTS" = 1 ]; then
+  if [ -f "$SCRIPT_DIR/auto_event_pub.py" ]; then
+    python3 "$SCRIPT_DIR/auto_event_pub.py" --cmd-topic "$AUTO_CMD_TOPIC" --odom-topic "$AUTO_ODOM_TOPIC" \
+      > "$BAG_ROOT/auto_events.log" 2>&1 &
+    AUTOPID=$!
+  else
+    log "警告：找不到 $SCRIPT_DIR/auto_event_pub.py，--auto-events 忽略"
+  fi
+fi
 
 ros2 bag record "${TOPICS[@]}" -o "$BAG_PATH" "${REC_ARGS[@]}" &
 BAGPID=$!
@@ -263,6 +284,10 @@ fi
 
 wait "$BAGPID"; RC=$?
 [ -n "${TIMER:-}" ] && kill "$TIMER" 2>/dev/null
+if [ -n "${AUTOPID:-}" ]; then
+  kill -INT "$AUTOPID" 2>/dev/null; wait "$AUTOPID" 2>/dev/null
+  log "自动事件标注已停止（日志：$BAG_ROOT/auto_events.log）"
+fi
 if [ "$RC" -ne 0 ]; then
   log "ros2 bag record 退出码 $RC。若提示 zstd/压缩不支持，请加 --no-compress 重试。"
 fi
