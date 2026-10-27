@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# ============================================================================
+# record_run.sh —— A2 真机全量数据录制（定位 / 建图 / 全局 / 局部 / 控制）
+#
+# 目的：每次真机运行，一条命令就把"定位 + 建图 + 全局规划 + 局部规划 + 控制"
+#       的全部话题录下来，并自动归档、校验、写索引。
+#
+# 用法（在真机上运行）：
+#   bash record_run.sh <标签>                     # 前台录制，Ctrl-C 按一次停止
+#   bash record_run.sh <标签> --duration 120      # 录 120s 后自动停
+#   bash record_run.sh <标签> --points            # 只录"点云短包"（默认 30s）
+#   bash record_run.sh <标签> --points --duration 20
+#   bash record_run.sh <标签> --no-compress       # 不压缩（默认 zstd）
+#   bash record_run.sh <标签> --storage mcap      # 换 mcap 存储（默认 sqlite3）
+#   bash record_run.sh --check                    # 只做"录前自检"，不录
+#   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
+#
+# 可用环境变量覆盖默认路径：
+#   NAV_WS=$HOME/nav_ws
+#   LOCAL_WS=$HOME/scan_planner_github_ws
+#   BAG_ROOT=$HOME/bags
+#   ROS_DOMAIN_ID=0
+# ============================================================================
+set -o pipefail   # 注意：不要加 set -u/-e，ROS 的 setup.bash 会因未定义变量报错
+
+NAV_WS="${NAV_WS:-$HOME/nav_ws}"
+LOCAL_WS="${LOCAL_WS:-$HOME/scan_planner_github_ws}"
+BAG_ROOT="${BAG_ROOT:-$HOME/bags}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+QOS_FILE="$BAG_ROOT/qos_overrides.yaml"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------------------------------------------------------------------
+# 话题清单（按 A2 真机话题名；真机恢复后请用 `ros2 topic list` 核一遍再定稿）
+# ---------------------------------------------------------------------------
+DIAG_TOPICS=(
+  # --- 基础 ---
+  /tf /tf_static /rosout
+  # --- 定位 ---
+  /loc/robo/odom /loc/odom /loc/status /loc/map /loc/keyframes /loc/submap
+  /lio/robo/odom /lio/imu/odom
+  # --- 建图 ---
+  /lio/cloud_world
+  /grid_map/occupancy /grid_map/occupancy_inflate /grid_map/sliding_map_bbox /grid_map/depth_cloud
+  # --- 全局规划 ---
+  /global_path /global_planner/raw_map /global_planner/map /move_base_simple/goal
+  # --- 局部规划 ---
+  /planning/bspline /local_path /planning/data_display /self_inflation /planning/go2_execution_frozen
+  # --- 控制 ---
+  /cmd_vel /motion_enabled
+  # --- 事件标注 ---
+  /test_event
+)
+
+POINTS_TOPICS=(
+  /tf /tf_static
+  /loc/robo/odom /loc/status /loc/map /loc/keyframes /loc/submap
+  /lio/cloud_world
+  /grid_map/occupancy /grid_map/occupancy_inflate
+  /self_inflation
+  /test_event
+)
+
+# ---------------------------------------------------------------------------
+log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
+
+source_env() {
+  # shellcheck disable=SC1091
+  source /opt/ros/humble/setup.bash 2>/dev/null || { log "错误：找不到 /opt/ros/humble/setup.bash"; exit 1; }
+  for ws in "$NAV_WS" "$LOCAL_WS"; do
+    if [ -f "$ws/install/setup.bash" ]; then
+      # shellcheck disable=SC1090
+      source "$ws/install/setup.bash"
+      log "已 source：$ws"
+    else
+      log "警告：找不到 $ws/install/setup.bash（跳过）"
+    fi
+  done
+  log "ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
+}
+
+write_qos() {
+  mkdir -p "$BAG_ROOT"
+  if [ -s "$QOS_FILE" ]; then
+    log "沿用已有 QoS：$QOS_FILE"
+  elif [ -f "$SCRIPT_DIR/qos_overrides.yaml" ]; then
+    cp "$SCRIPT_DIR/qos_overrides.yaml" "$QOS_FILE"
+    log "已从脚本目录复制 QoS -> $QOS_FILE"
+  else
+    cat > "$QOS_FILE" <<'YAML'
+/loc/map: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/loc/keyframes: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/global_path: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/global_planner/raw_map: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/global_planner/map: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/motion_enabled: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/self_inflation: {reliability: reliable, durability: transient_local, history: keep_last, depth: 1}
+/grid_map/occupancy: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+/grid_map/occupancy_inflate: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+/grid_map/sliding_map_bbox: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+/grid_map/depth_cloud: {reliability: best_effort, durability: volatile, history: keep_last, depth: 5}
+YAML
+    log "已生成 QoS：$QOS_FILE"
+  fi
+}
+
+# 录前自检：话题存在性 + 关键话题频率 + 定位状态
+precheck() {
+  log "==================== 录前自检 ===================="
+  local all_topics; all_topics="$(ros2 topic list 2>/dev/null)"
+  if [ -z "$all_topics" ]; then
+    log "错误：ros2 topic list 为空 —— 环境/网络没通，先别录。"; return 1
+  fi
+  local missing=()
+  for t in "${DIAG_TOPICS[@]}"; do
+    printf '%s\n' "$all_topics" | grep -qx "$t" || missing+=("$t")
+  done
+  if [ ${#missing[@]} -eq 0 ]; then
+    log "清单话题全部存在 ✓（${#DIAG_TOPICS[@]} 个）"
+  else
+    log "以下话题当前不存在（可能尚未发布 / 名字不同；录包时会 WARN，不影响其它话题）："
+    printf '   %s\n' "${missing[@]}"
+  fi
+  log "---- 关键话题频率 ----"
+  for t in /loc/status /loc/robo/odom /lio/cloud_world /planning/bspline /cmd_vel; do
+    printf '%s\n' "$all_topics" | grep -qx "$t" || continue
+    printf '  %-24s ' "$t"
+    timeout 3 ros2 topic hz "$t" 2>&1 | grep -m1 'average rate' || echo '(3s 内无数据)'
+  done
+  if printf '%s\n' "$all_topics" | grep -qx /loc/status; then
+    printf '  /loc/status state  '
+    timeout 3 ros2 topic echo /loc/status --once 2>/dev/null | grep -m1 -E 'state' || echo '(读不到)'
+    log "  → 期望 state: 3（正在跟踪）；不是 3 说明定位还没进入跟踪"
+  fi
+  log "=================================================="
+}
+
+# 录后：解析 bag，列出缺失/为 0 的话题，写 meta.yaml 与 INDEX.md，收拢附加文件
+postprocess() {
+  local bag="$1"; shift
+  local expected=("$@")
+  ros2 bag info "$bag" > "$bag/bag_info.txt" 2>&1 || true
+
+  # 解析 "Topic: /x | Type: ... | Count: N"
+  local pairs; pairs="$(grep -oP 'Topic: \S+ \| Type: \S+ \| Count: \d+' "$bag/bag_info.txt" \
+      | sed -E 's/Topic: (\S+) \| Type: \S+ \| Count: ([0-9]+).*/\1 \2/')"
+
+  local recorded=0; local zero=()
+  log "==================== 录制结果 ===================="
+  for t in "${expected[@]}"; do
+    local c; c="$(printf '%s\n' "$pairs" | awk -v k="$t" '$1==k{print $2}')"
+    if [ -n "$c" ] && [ "$c" -gt 0 ]; then
+      recorded=$((recorded+1)); printf '  %-34s %s\n' "$t" "$c"
+    else
+      zero+=("$t"); printf '  %-34s %s\n' "$t" "!! 0/缺失"
+    fi
+  done
+  log "记录到 $recorded / ${#expected[@]} 个话题"
+  [ ${#zero[@]} -gt 0 ] && { log "缺失/为 0 的话题："; printf '   %s\n' "${zero[@]}"; }
+
+  # meta.yaml
+  cat > "$bag/meta.yaml" <<META
+label: $(basename "$bag")
+date: $(date -Is)
+host: $(hostname)
+ros_domain_id: $ROS_DOMAIN_ID
+topics_expected: ${#expected[@]}
+topics_recorded: $recorded
+missing_topics: [$(printf '%s, ' "${zero[@]}" | sed 's/, $//')]
+META
+  log "已写 $bag/meta.yaml"
+
+  # INDEX.md 追加
+  local idx="$BAG_ROOT/INDEX.md"
+  [ -f "$idx" ] || printf '# 录制索引\n\n| 时间 | 名称 | 话题(录到/期望) | 大小 | 备注 |\n|---|---|---|---|---|\n' > "$idx"
+  printf '| %s | %s | %s/%s | %s | %s |\n' \
+    "$(date '+%F %T')" "$(basename "$bag")" "$recorded" "${#expected[@]}" \
+    "$(du -sh "$bag" 2>/dev/null | cut -f1)" "${LABEL_NOTE:-}" >> "$idx"
+  log "已追加 $idx"
+
+  # 附加文件一起归档（有就收，没有就跳过）
+  for f in "$BAG_ROOT/loc_tum.txt" "$BAG_ROOT/match.csv"; do
+    [ -f "$f" ] && cp "$f" "$bag/" && log "  收拢 $(basename "$f")"
+  done
+  if [ -d "$HOME/.ros/log/maploc" ]; then
+    cp -r "$HOME/.ros/log/maploc" "$bag/logs_maploc" && log "  收拢 ~/.ros/log/maploc"
+  fi
+  log "完成：$bag"
+}
+
+# ---------------------------------------------------------------------------
+# 参数解析
+# ---------------------------------------------------------------------------
+MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=1; POINTS=0; EVENT_MSG=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check)       MODE="check" ;;
+    --event)       MODE="event"; EVENT_MSG="${2:-}"; shift ;;
+    --points)      POINTS=1; MODE="record" ;;
+    --duration)    DURATION="${2:-}"; shift ;;
+    --storage)     STORAGE="${2:-sqlite3}"; shift ;;
+    --no-compress) COMPRESS=0 ;;
+    -h|--help)     sed -n '2,30p' "$0"; exit 0 ;;
+    -*)            echo "未知参数：$1"; exit 1 ;;
+    *)             LABEL="$1" ;;
+  esac
+  shift
+done
+
+case "$MODE" in
+  check)
+    source_env; write_qos; precheck; exit 0 ;;
+  event)
+    if [ -z "$EVENT_MSG" ]; then echo "用法：bash record_run.sh --event \"事件描述\""; exit 1; fi
+    source_env
+    ros2 topic pub --once /test_event std_msgs/msg/String "{data: '$EVENT_MSG'}" && log "事件已发出：$EVENT_MSG"
+    exit 0 ;;
+esac
+
+# 录制模式：先校验必须参数，再动目录/环境（避免报用法时就把 ~/bags 建出来）
+[ -n "$LABEL" ] || {
+  echo "用法：bash record_run.sh <标签> [--duration N] [--points] [--no-compress] [--storage mcap]"
+  echo "      bash record_run.sh --check | --event \"事件描述\""
+  exit 1
+}
+
+source_env
+write_qos
+
+if [ "$POINTS" = 1 ]; then
+  TOPICS=("${POINTS_TOPICS[@]}")
+  STORAGE="mcap"; [ -n "$DURATION" ] || DURATION=30
+  LABEL_NOTE="点云短包"
+else
+  TOPICS=("${DIAG_TOPICS[@]}")
+  LABEL_NOTE="诊断包"
+fi
+
+precheck || exit 1
+
+BAG_PATH="$BAG_ROOT/${LABEL}_$(date +%Y%m%d_%H%M%S)"
+[ -e "$BAG_PATH" ] && BAG_PATH="${BAG_PATH}_$$"
+
+REC_ARGS=(--qos-profile-overrides-path "$QOS_FILE" --storage "$STORAGE")
+[ "$COMPRESS" = 1 ] && REC_ARGS+=(--compression-mode file --compression-format zstd)
+
+log "开始录制 → $BAG_PATH"
+log "话题数：${#TOPICS[@]}  storage=$STORAGE  压缩=$COMPRESS  时长=${DURATION:-手动(Ctrl-C)}"
+log "事件标注：另开终端执行  bash $0 --event \"goal A\""
+log "---------------------------------------------------------"
+
+ros2 bag record "${TOPICS[@]}" -o "$BAG_PATH" "${REC_ARGS[@]}" &
+BAGPID=$!
+
+# Ctrl-C 转发给 record：只停一次，让它自己 finalize
+cleanup() { log "收到停止信号，正在结束录制（等待 Bag finalized）..."; kill -INT "$BAGPID" 2>/dev/null; }
+trap cleanup INT TERM
+
+if [ -n "$DURATION" ]; then
+  ( sleep "$DURATION"; log "到达 ${DURATION}s，自动停止"; kill -INT "$BAGPID" 2>/dev/null ) &
+  TIMER=$!
+fi
+
+wait "$BAGPID"; RC=$?
+[ -n "${TIMER:-}" ] && kill "$TIMER" 2>/dev/null
+if [ "$RC" -ne 0 ]; then
+  log "ros2 bag record 退出码 $RC。若提示 zstd/压缩不支持，请加 --no-compress 重试。"
+fi
+
+postprocess "$BAG_PATH" "${TOPICS[@]}"

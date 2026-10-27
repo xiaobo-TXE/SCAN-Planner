@@ -1,0 +1,79 @@
+# ============================================================================
+# 文件：qos_overrides.yaml —— ros2 bag record 的 QoS 覆盖
+#
+# 为什么要它：
+#   - 保留型话题（transient_local）只在"订阅者出现"或"发布时"发最后一条，
+#     用默认 QoS（volatile）会收不到 → 必须写 durability: transient_local；
+#   - /grid_map/* 是 best_effort → 用默认 reliable 匹配不上 → 必须写 best_effort。
+# 用法：ros2 bag record ... --qos-profile-overrides-path <本文件>
+#
+# 注意：YAML 只能用空格缩进，不能用 Tab。
+# ============================================================================
+
+# ---- 保留型（transient_local）------------------------------------------------
+/loc/map:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+/loc/keyframes:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+/global_path:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+/global_planner/raw_map:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+/global_planner/map:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+/motion_enabled:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+/self_inflation:
+  reliability: reliable
+  durability: transient_local
+  history: keep_last
+  depth: 1
+
+# ---- best_effort（局部位姿图）------------------------------------------------
+/grid_map/occupancy:
+  reliability: best_effort
+  durability: volatile
+  history: keep_last
+  depth: 5
+
+/grid_map/occupancy_inflate:
+  reliability: best_effort
+  durability: volatile
+  history: keep_last
+  depth: 5
+
+/grid_map/sliding_map_bbox:
+  reliability: best_effort
+  durability: volatile
+  history: keep_last
+  depth: 5
+
+/grid_map/depth_cloud:
+  reliability: best_effort
+  durability: volatile
+  history: keep_last
+  depth: 5
