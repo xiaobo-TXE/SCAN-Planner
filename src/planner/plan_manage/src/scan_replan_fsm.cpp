@@ -975,8 +975,11 @@ namespace scan_planner
       }
 
       /* && (end_pt_ - pos).norm() < 0.5 */
-      // 【轨迹已经走完】
-      if (t_cur > info->duration_ - 1e-2)
+      // 【轨迹已经走完】—— 以“实际到位”为准：时间走完 + 机器人确实已到轨迹末端附近。
+      // 只看时间会被“卡住/跟踪滞后”骗过（规划时钟在跑但机器人没跟上），从而提前判完成。
+      const Eigen::Vector3d traj_end_pt =
+          info->position_traj_.evaluateDeBoorT(info->duration_);
+      if (t_cur > info->duration_ - 1e-2 && (traj_end_pt - odom_pos_).norm() < 0.5)
       {
         // 还有下一个航点 → 继续前往
         if (isWaypointSequenceMode() && current_wp_ + 1 < (int)active_waypoints_.size())
