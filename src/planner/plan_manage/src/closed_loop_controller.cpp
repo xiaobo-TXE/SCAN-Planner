@@ -54,6 +54,8 @@ public:
     max_vyaw_ = std::min(declare_parameter<double>("max_vyaw", 1.0), kMaxVYawLimit);
     // 到终点多近就算“到达”，可以停下
     finish_dist_ = declare_parameter<double>("finish_dist", 0.15);
+    // 参考时刻前瞻(秒)：参考点比“机器人投影时刻”略微靠前，保住前馈速度不为 0
+    time_lead_ = declare_parameter<double>("time_lead", 0.2);
 
     // 订阅规划器发布的轨迹
     bspline_sub_ = create_subscription<scan_planner_msgs::msg::Bspline>(
@@ -97,6 +99,26 @@ private:
     const double norm = value.norm();
     // 没超就原样返回；超了就按比例缩小到上限
     return (norm <= max_norm || norm < 1e-6) ? value : value / norm * max_norm;
+  }
+
+  // 把“机器人当前位置”投影到轨迹上，返回轨迹上离它最近的时刻 t。
+  // 只在 [t0-0.5, t0+1.0] 内局部搜索（避免轨迹回绕时取到错误的远段），步长 0.02s。
+  double projectOntoTrajClamped(const Eigen::Vector3d &p, double t0) const
+  {
+    const double lo = std::max(0.0, t0 - 0.5);
+    const double hi = std::min(traj_duration_, t0 + 1.0);
+    double t_best = t0;
+    double d_best = 1e18;
+    for (double t = lo; t <= hi + 1e-9; t += 0.02)
+    {
+      const double d = (traj_[0].evaluateDeBoorT(t) - p).squaredNorm();
+      if (d < d_best)
+      {
+        d_best = d;
+        t_best = t;
+      }
+    }
+    return t_best;
   }
 
   // 估算“当前应该朝哪个方向”：看向轨迹前方 time_forward_ 秒处的点
@@ -236,8 +258,10 @@ private:
 
     // 朝向已对齐 → 解除冻结，允许规划器继续推进轨迹
     publishExecutionFrozen(false);
-    // 轨迹执行时间往前推进 dt
-    exec_time_ = std::min(traj_duration_, exec_time_ + dt);
+    // 参考时刻推进 dt，但不得超前于“机器人实际所在的投影时刻 + 小前瞻”：
+    // 机器人不动 → 投影不变 → 参考也不前进，避免卡住时误差累积、脱困猛冲
+    const double t_proj = projectOntoTrajClamped(odom_pos_, exec_time_);
+    exec_time_ = std::min(traj_duration_, std::min(exec_time_ + dt, t_proj + time_lead_));
     // 记住这次时间，供下一轮计算 dt（此时 exec_time_ 已经推进）
     last_update_time_ = current_time;
     // 用推进后的时刻重新取目标位置
@@ -284,7 +308,7 @@ private:
   double odom_yaw_{0.0};
   double exec_time_{0.0};
   rclcpp::Time last_update_time_{0, 0, RCL_ROS_TIME};
-  double time_forward_, heading_error_threshold_, kp_pos_, kp_yaw_;
+  double time_forward_, time_lead_, heading_error_threshold_, kp_pos_, kp_yaw_;
   double max_vx_, max_vy_, max_vyaw_, finish_dist_;
 };
 }  // namespace scan_planner
