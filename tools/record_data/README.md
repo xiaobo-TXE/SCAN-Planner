@@ -63,6 +63,38 @@ bash record_run.sh stair_corner --auto-events
 阈值/话题可用 `--cmd-eps` / `--speed-eps` / `--stuck-time` / `--window`（见 `auto_event_pub.py`）
 及环境变量 `AUTO_CMD_TOPIC` / `AUTO_ODOM_TOPIC` 调整。事件日志写在 `$BAG_ROOT/auto_events.log`。
 
+## 离线分析（`analyze_run.py`）
+
+录完后直接分析一个 bag：
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/scan_planner_github_ws/install/setup.bash   # 用于解析 Bspline 等自定义类型
+python3 analyze_run.py ~/bags/stair_corner_20261027_153000
+python3 analyze_run.py <bag> --with-clouds           # 额外算 RAW/INFLATE 最近障碍距离（慢）
+```
+
+产出（默认写在 `<bag>/analysis/`）：
+
+| 文件 | 内容 |
+|---|---|
+| `report.md` | 时长/里程/卡住段/跟踪误差/事件 + **自动结论** |
+| `figs/01_traj.png` | 俯视轨迹：odom / global_path / local_path / B样条 / 卡住点 / 起终点 |
+| `figs/02_speed.png` | 指令速度 vs 实测速度（卡住段着色） |
+| `figs/03_track_error.png` | 横向跟踪误差（odom 到当帧 local_path 的最近距离） |
+| `figs/04_state.png` | `/loc/status` 的 state + 质量字段（有该话题时） |
+| `figs/05_lanes.png` | 事件泳道：冻结 / 卡住 / `--event` 与 `AUTO:*` 标注 |
+| `figs/06_nearest_cloud.png` | RAW vs INFLATE 最近障碍距离（需 `--with-clouds`） |
+
+无真机时可造假包做回归：
+
+```bash
+python3 make_test_bag.py /tmp/testbag && python3 analyze_run.py /tmp/testbag
+```
+
+依赖：`rosbag2_py`（source ROS）**或** `pip install rosbags`（纯 python，免装 ROS）；`numpy`、`matplotlib`
+（建议装有中文字体，否则图里的中文会变方框；脚本会自动挑可用字体）。
+
 ## 话题清单（按 A2 名；真机核对后请改 `DIAG_TOPICS`）
 
 - **定位**：`/loc/robo/odom` `/loc/odom` `/loc/status` `/loc/map` `/loc/keyframes` `/loc/submap` `/lio/robo/odom` `/lio/imu/odom` `/tf` `/tf_static`
