@@ -18,7 +18,9 @@ from rosbag2_py import SequentialWriter, StorageOptions, ConverterOptions, Topic
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry, Path
 from geometry_msgs.msg import PoseStamped
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, String, Header
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2 as pc2
 
 try:  # 有工作空间时，顺便塞一条 Bspline，覆盖该图的代码路径
     from scan_planner_msgs.msg import Bspline
@@ -47,6 +49,13 @@ def mk_path(pts):
     return p
 
 
+def mk_cloud(xs, y, z=0.0):
+    """一条平行于 x 轴、位于 y 处的"墙"点云"""
+    hdr = Header()
+    hdr.frame_id = "map"
+    return pc2.create_cloud_xyz32(hdr, [(x, y, z) for x in xs])
+
+
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else "/tmp/testbag"
     import math
@@ -57,7 +66,9 @@ def main():
                       ("/local_path", "nav_msgs/msg/Path"),
                       ("/global_path", "nav_msgs/msg/Path"),
                       ("/planning/go2_execution_frozen", "std_msgs/msg/Bool"),
-                      ("/test_event", "std_msgs/msg/String")]:
+                      ("/test_event", "std_msgs/msg/String"),
+                      ("/grid_map/occupancy", "sensor_msgs/msg/PointCloud2"),
+                      ("/grid_map/occupancy_inflate", "sensor_msgs/msg/PointCloud2")]:
         w.create_topic(TopicMetadata(name=name, type=typ, serialization_format="cdr"))
     if HAVE_BSPLINE:
         w.create_topic(TopicMetadata(name="/planning/bspline",
@@ -71,11 +82,20 @@ def main():
     gp = mk_path([(i * 0.3, 0.0) for i in range(10)] + [(3.0, i * 0.3) for i in range(1, 8)])
     w.write("/global_path", serialize_message(gp), int((t + 0.05) * ns))
     last_lp = -1.0
+    last_cloud = -1.0
     while t < 20.0:
         moving = (t < 6.0) or (t >= 12.0)
         if moving:
             x += 0.3 * step
         w.write("/loc/robo/odom", serialize_message(mk_odom(x, 0.0)), int(t * ns))
+        # 建图点云：左侧一堵墙；卡住时段墙更近（模拟窄处/被挡），膨胀层=墙外扩 0.32
+        if t - last_cloud > 0.2:
+            last_cloud = t
+            y_wall = 0.25 if (6.0 <= t < 12.0) else 0.60
+            xs = [x - 1.0 + i * 0.1 for i in range(30)]
+            w.write("/grid_map/occupancy", serialize_message(mk_cloud(xs, y_wall)), int(t * ns))
+            w.write("/grid_map/occupancy_inflate", serialize_message(mk_cloud(xs, max(y_wall - 0.32, 0.0))),
+                    int(t * ns))
         c = Twist()
         c.linear.x = 1.0 if (t >= 0.5) else 0.0       # 全程几乎都在"要求前进"
         w.write("/cmd_vel", serialize_message(c), int(t * ns))

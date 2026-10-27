@@ -95,6 +95,14 @@ python3 make_test_bag.py /tmp/testbag && python3 analyze_run.py /tmp/testbag
 依赖：`rosbag2_py`（source ROS）**或** `pip install rosbags`（纯 python，免装 ROS）；`numpy`、`matplotlib`
 （建议装有中文字体，否则图里的中文会变方框；脚本会自动挑可用字体）。
 
+## 交互式回放（Foxglove）
+
+用 Foxglove 打开 bag 后，导入本目录的 `foxglove_layout.json`，即得 3D（原始/膨胀占据、
+局部/全局路径、机身圆柱）+ 两条 Plot（指令 vs 实测、定位状态/使能/冻结）。用法与排错见 `FOXGLOVE.md`。
+
+> 适合**交互式回放**；出指标/出图用上面的 `analyze_run.py`。先用分析脚本定位"哪一段"，
+> 再用 Foxglove 拉时间轴细看那一小段。
+
 ## 话题清单（按 A2 名；真机核对后请改 `DIAG_TOPICS`）
 
 - **定位**：`/loc/robo/odom` `/loc/odom` `/loc/status` `/loc/map` `/loc/keyframes` `/loc/submap` `/lio/robo/odom` `/lio/imu/odom` `/tf` `/tf_static`

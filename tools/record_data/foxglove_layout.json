@@ -1,0 +1,149 @@
+{
+  "configById": {
+    "3D!scanplanner": {
+      "cameraState": {
+        "perspective": true,
+        "distance": 30,
+        "phi": 55,
+        "thetaOffset": 60,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "map",
+      "scene": {
+        "backgroundColor": "#202024"
+      },
+      "transforms": {},
+      "topics": {
+        "/grid_map/occupancy": {
+          "visible": true,
+          "colorMode": "flat",
+          "color": "#9e9e9e",
+          "pointShape": "circle",
+          "pointSize": 2
+        },
+        "/grid_map/occupancy_inflate": {
+          "visible": true,
+          "colorMode": "flat",
+          "color": "#ff5252",
+          "pointShape": "circle",
+          "pointSize": 2
+        },
+        "/lio/cloud_world": {
+          "visible": false,
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "pointShape": "circle",
+          "pointSize": 1.5
+        },
+        "/grid_map/depth_cloud": {
+          "visible": false,
+          "colorMode": "colormap",
+          "colorMap": "turbo"
+        },
+        "/global_path": {
+          "visible": true,
+          "color": "#bdbdbd"
+        },
+        "/local_path": {
+          "visible": true,
+          "color": "#00e676"
+        },
+        "/self_inflation": {
+          "visible": true,
+          "color": "#ffb300"
+        },
+        "/move_base_simple/goal": {
+          "visible": true,
+          "color": "#ffd600"
+        },
+        "/planning/bspline": {
+          "visible": false
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point"
+      },
+      "imageMode": {}
+    },
+    "Plot!speed": {
+      "paths": [
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/cmd_vel.linear.x",
+          "enabled": true,
+          "color": "#ff5252"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/loc/robo/odom.twist.twist.linear.x",
+          "enabled": true,
+          "color": "#4e98e2"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "foxglovePanelTitle": "指令 vs 实测 (m/s)"
+    },
+    "Plot!state": {
+      "paths": [
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/loc/status.state",
+          "enabled": true,
+          "color": "#00bfa5"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/motion_enabled.data",
+          "enabled": true,
+          "color": "#ffd600"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/planning/go2_execution_frozen.data",
+          "enabled": true,
+          "color": "#7c4dff"
+        }
+      ],
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "floating",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "sidebarDimension": 240,
+      "foxglovePanelTitle": "定位状态 / 使能 / 冻结"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": "3D!scanplanner",
+    "second": {
+      "first": "Plot!speed",
+      "second": "Plot!state",
+      "direction": "row"
+    },
+    "direction": "column",
+    "splitPercentage": 65
+  }
+}
