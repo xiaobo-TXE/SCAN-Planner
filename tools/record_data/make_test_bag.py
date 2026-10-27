@@ -62,6 +62,7 @@ def main():
     w = SequentialWriter()
     w.open(StorageOptions(uri=out, storage_id="sqlite3"), ConverterOptions("cdr", "cdr"))
     for name, typ in [("/loc/robo/odom", "nav_msgs/msg/Odometry"),
+                      ("/lio/robo/odom", "nav_msgs/msg/Odometry"),
                       ("/cmd_vel", "geometry_msgs/msg/Twist"),
                       ("/local_path", "nav_msgs/msg/Path"),
                       ("/global_path", "nav_msgs/msg/Path"),
@@ -87,7 +88,11 @@ def main():
         moving = (t < 6.0) or (t >= 12.0)
         if moving:
             x += 0.3 * step
-        w.write("/loc/robo/odom", serialize_message(mk_odom(x, 0.0)), int(t * ns))
+        # 走一条平缓的 S 形（让轨迹协方差满秩，evo 的 Umeyama 对齐才可用）
+        y = 0.25 * math.sin(0.6 * x)
+        w.write("/loc/robo/odom", serialize_message(mk_odom(x, y)), int(t * ns))
+        # 纯 LIO（带横向漂移），用于验证 export_tum + evo 的 APE/RPE
+        w.write("/lio/robo/odom", serialize_message(mk_odom(x, y + 0.03 + 0.01 * t)), int(t * ns))
         # 建图点云：左侧一堵墙；卡住时段墙更近（模拟窄处/被挡），膨胀层=墙外扩 0.32
         if t - last_cloud > 0.2:
             last_cloud = t
@@ -101,13 +106,13 @@ def main():
         w.write("/cmd_vel", serialize_message(c), int(t * ns))
         if t - last_lp > 0.5:
             last_lp = t
-            w.write("/local_path", serialize_message(mk_path([(x + i * 0.3, 0.0) for i in range(12)])),
+            w.write("/local_path", serialize_message(mk_path([(x + i * 0.3, y) for i in range(12)])),
                     int(t * ns))
         if HAVE_BSPLINE:
             b = Bspline()
             b.order = 3
             b.traj_id = int(t * 10)
-            pts = [(x + i * 0.3, 0.05, 0.0) for i in range(6)]
+            pts = [(x + i * 0.3, y + 0.05, 0.0) for i in range(6)]
             for (px, py, pz) in pts:
                 q = __import__("geometry_msgs.msg", fromlist=["Point"]).Point()
                 q.x, q.y, q.z = px, py, pz

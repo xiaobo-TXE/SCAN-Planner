@@ -94,6 +94,35 @@ python3 make_test_bag.py /tmp/testbag && python3 analyze_run.py /tmp/testbag
 
 依赖：`rosbag2_py`（source ROS）**或** `pip install rosbags`（纯 python，免装 ROS）；`numpy`、`matplotlib`
 （建议装有中文字体，否则图里的中文会变方框；脚本会自动挑可用字体）。
+`analyze_run.py` / `export_tum.py` / `make_test_bag.py` 同目录，公共函数在 `bag_tools.py`。
+
+## 轨迹精度量化（`export_tum.py` + evo）
+
+把 bag 里的轨迹导成 TUM 格式，交给 [evo](https://github.com/MichaelGrupp/evo) 算 **ATE / RPE**：
+
+```bash
+source /opt/ros/humble/setup.bash
+source ~/scan_planner_github_ws/install/setup.bash
+python3 export_tum.py ~/bags/<包>        # 产出 <bag>/tum/{est,ref,global_path,local_path,bsp_last}.tum
+# 换轨迹来源：
+python3 export_tum.py <包> --est-topic /loc/robo/odom --ref-topic /lio/robo/odom
+
+# evo 建议装在独立 venv，别 pip --user（会把 numpy 升到 2.x，系统 scipy 会挂）
+virtualenv ~/venvs/evo && ~/venvs/evo/bin/pip install evo
+~/venvs/evo/bin/evo_config set plot_backend Agg        # 无 Qt 环境时必需
+~/venvs/evo/bin/evo_traj tum <bag>/tum/est.tum <bag>/tum/ref.tum --ref=<bag>/tum/ref.tum -p --plot_mode=xy
+~/venvs/evo/bin/evo_ape  tum <bag>/tum/ref.tum <bag>/tum/est.tum -va --save_plot ape.png
+~/venvs/evo/bin/evo_rpe  tum <bag>/tum/ref.tum <bag>/tum/est.tum -va --delta 1 --delta_unit m --save_plot rpe.png
+```
+
+**怎么解读**（没有真值 GT 时，这是"两个估计之间"的比较，不是绝对精度）：
+- `est=/loc/robo/odom`（地图定位） vs `ref=/lio/robo/odom`（纯 LIO）→ **RPE 小 = 两者一致；
+  APE 大 = 地图定位在持续往回拉（修正量/漂移）**。
+- 将来若有 RTK / 动捕 / 全站仪真值轨迹，套同样命令即为**绝对精度**。
+- 轨迹近似一条直线时 Umeyama 对齐会报 degenerate → 去掉 `-a`，或改用 `--align_origin`。
+
+**本地验证**：假包（注入 `0.03 + 0.01t` 的漂移）跑通，**APE rmse 0.0165 m、RPE(每 1 m) rmse 0.055 m**，
+并生成 `ape_raw/map.png`、`rpe_raw/map.png`。
 
 ## 交互式回放
 
