@@ -95,13 +95,26 @@ python3 make_test_bag.py /tmp/testbag && python3 analyze_run.py /tmp/testbag
 依赖：`rosbag2_py`（source ROS）**或** `pip install rosbags`（纯 python，免装 ROS）；`numpy`、`matplotlib`
 （建议装有中文字体，否则图里的中文会变方框；脚本会自动挑可用字体）。
 
-## 交互式回放（Foxglove）
+## 交互式回放
 
-用 Foxglove 打开 bag 后，导入本目录的 `foxglove_layout.json`，即得 3D（原始/膨胀占据、
-局部/全局路径、机身圆柱）+ 两条 Plot（指令 vs 实测、定位状态/使能/冻结）。用法与排错见 `FOXGLOVE.md`。
+### 方案 A：rviz2（零安装，本机已装）
+```bash
+# 终端 1：回放 bag
+ros2 bag play ~/bags/<你的包>
+# 终端 2：加载本目录的配置
+rviz2 -d tools/record_data/replay.rviz
+```
+`replay.rviz` 显示：原始占据 / 膨胀占据（best_effort，已设对 QoS）/ 局部路径 / 全局路径 /
+机身两圆柱 `/self_inflation` / 滑动窗口框 / TF；全局点云与地形图默认关。
+Fixed Frame 默认 `map`，不对就改 Global Options。
 
-> 适合**交互式回放**；出指标/出图用上面的 `analyze_run.py`。先用分析脚本定位"哪一段"，
-> 再用 Foxglove 拉时间轴细看那一小段。
+### 方案 B：Foxglove（3D + 曲线一屏，需装）
+用 Foxglove 打开 bag 后导入本目录的 `foxglove_layout.json`：3D（原始/膨胀占据、
+局部/全局路径、机身圆柱、目标）+ 两条 Plot（指令 vs 实测、定位状态/使能/冻结）。
+获取方式与排错见 `FOXGLOVE.md`。
+
+> `analyze_run.py` 负责**出指标和图**（一条命令、可归档）；rviz2 / Foxglove 负责**交互式回放**。
+> 建议先用分析脚本定位"哪一段"，再用回放拉时间轴细看那一小段。
 
 ## 话题清单（按 A2 名；真机核对后请改 `DIAG_TOPICS`）
 
