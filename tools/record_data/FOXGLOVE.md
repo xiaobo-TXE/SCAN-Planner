@@ -2,6 +2,10 @@
 
 用 [Foxglove](https://foxglove.dev/) 打开录好的 bag，导入这份布局，3D + 曲线一次排好。
 
+> **获取 Foxglove**：网页版最快 —— Chrome 打开 **`app.foxglove.dev`**，注册**免费账号**即可（无需安装）；
+> 桌面版从 **`https://foxglove.dev/download`** 下载（Linux 是 .deb：`sudo apt install ./foxglove-studio-*.deb`）。
+> 不想装也行：rviz2 已经能回放 3D（见 `replay.rviz`），`analyze_run.py` 能出全部指标图。
+
 ## 用法
 1. 打开 Foxglove（桌面版或 `app.foxglove.dev`）→ **Open data source → Open local file**，选 bag 目录里的 `metadata.yaml`（或整个 sqlite3 / mcap 目录）。
 2. 左上 **Layouts → Import from file…**，选本目录的 `foxglove_layout.json`。

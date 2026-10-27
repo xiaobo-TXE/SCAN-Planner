@@ -101,10 +101,12 @@ python3 make_test_bag.py /tmp/testbag && python3 analyze_run.py /tmp/testbag
 ```bash
 # 终端 1：回放 bag
 ros2 bag play ~/bags/<你的包>
-# 终端 2：加载本目录的配置
-rviz2 -d tools/record_data/replay.rviz
+# 终端 2：用项目自带的显示配置（default 或 replay）
+ros2 launch scan_planner rviz.launch.py config:=replay
+# 等价于：rviz2 -d <share>/scan_planner/rviz/replay.rviz
 ```
-`replay.rviz` 显示：原始占据 / 膨胀占据（best_effort，已设对 QoS）/ 局部路径 / 全局路径 /
+`replay.rviz` 在 `src/planner/plan_manage/launch/`（编译时装进 `share/scan_planner/rviz/`），
+显示：原始占据 / 膨胀占据（best_effort，已设对 QoS）/ 局部路径 / 全局路径 /
 机身两圆柱 `/self_inflation` / 滑动窗口框 / TF；全局点云与地形图默认关。
 Fixed Frame 默认 `map`，不对就改 Global Options。
 

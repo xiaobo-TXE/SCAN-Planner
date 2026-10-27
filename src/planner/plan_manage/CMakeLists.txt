@@ -73,7 +73,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME} OPTIONAL)
-install(FILES launch/default.rviz DESTINATION share/${PROJECT_NAME}/rviz OPTIONAL)
+install(FILES launch/default.rviz launch/replay.rviz DESTINATION share/${PROJECT_NAME}/rviz OPTIONAL)
 install(PROGRAMS
   scripts/keypoint_recorder.py
   scripts/reference_path_publisher.py
