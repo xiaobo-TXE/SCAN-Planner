@@ -84,7 +84,7 @@ def halo(lw):
     return [pe.Stroke(linewidth=lw + 2.5, foreground="white", alpha=0.9), pe.Normal()]
 
 
-def corner_legend(ax, fontsize=8.5):
+def corner_legend(ax, fontsize=8.0):
     """把图例缩小并放到四个角里"最空"的那个，尽量不压曲线"""
     x0, x1 = ax.get_xlim()
     y0, y1 = ax.get_ylim()
@@ -105,8 +105,11 @@ def corner_legend(ax, fontsize=8.5):
             cnt += int(np.sum((xd >= a) & (xd <= b) & (yd >= c) & (yd <= d)))
         counts[name] = cnt
     best = min(counts, key=counts.get)
+    # markerscale 把"图标"也按比例缩小（默认和曲线上的标记一样大）；handle* 缩线段/色块
     ax.legend(loc=best, fontsize=fontsize, framealpha=0.92, edgecolor="#bbbbbb",
-              borderpad=0.3, labelspacing=0.25, handlelength=1.3, handletextpad=0.45)
+              borderpad=0.22, labelspacing=0.2, borderaxespad=0.35,
+              handlelength=1.1, handleheight=0.55, handletextpad=0.35,
+              markerscale=0.42)
 
 
 def save(fig, path):
@@ -427,10 +430,10 @@ def main():
     # =============================== 图1a：定位轨迹 ===============================
     fig, ax = plt.subplots(figsize=(10, 10))
     ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK + 1.2, color=C_ACTUAL, alpha=0.45,
-            label="WORLD 系 /lio/robo/odom（底色带）", zorder=2)
+            label="WORLD 轨迹(odom)", zorder=2)
     if map_in_world is not None:
         ax.plot(map_in_world[:, 0], map_in_world[:, 1], "--", lw=LW_MID, color=C_MAP,
-                label="MAP 系 /loc/robo/odom（经 TF 变到 world）", zorder=5,
+                label="MAP 轨迹(TF对齐)", zorder=5,
                 path_effects=halo(LW_MID))
     ax.plot(P[0, 0], P[0, 1], "o", ms=12, color="k", label="起点", zorder=6)
     ax.plot(P[-1, 0], P[-1, 1], "s", ms=12, color="k", label="终点", zorder=6)
@@ -442,8 +445,8 @@ def main():
     # =============================== 图1b：偏差 / TF 修正量 ===============================
     fig, ax = plt.subplots(figsize=(12, 4.5))
     if dev_t:
-        ax.plot(dev_t, dev_v, "-", lw=LW_MID, color=C_DEV, label="两定位源偏差（TF 对齐后）")
-        ax.plot(dev_t, corr_v, "--", lw=LW_MID, color=C_CORR, label="TF 修正量（map→world 平移）")
+        ax.plot(dev_t, dev_v, "-", lw=LW_MID, color=C_DEV, label="两源偏差(TF对齐后)")
+        ax.plot(dev_t, corr_v, "--", lw=LW_MID, color=C_CORR, label="TF 修正量")
         corner_legend(ax)
     else:
         ax.text(0.5, 0.5, "缺少 /tf 或 /loc/robo/odom，无法做对齐对比",
@@ -471,7 +474,7 @@ def main():
     fig, ax = plt.subplots(figsize=(10, 10))
     # 实际轨迹：半透明宽带打底（最底层）
     ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK + 1.6, color=C_ACTUAL, alpha=0.40,
-            label="实际轨迹（odom，底色带）", zorder=1)
+            label="实际轨迹(odom带)", zorder=1)
     # 全局轨迹：只有最后一条突出显示，之前的很淡（体现路线演化又不糊）
     ng = len(data["global_path"])
     for k, (t, pts, frame) in enumerate(data["global_path"]):
@@ -485,7 +488,7 @@ def main():
                 zorder=5 if is_last else 2,
                 path_effects=halo(LW_MID) if is_last else None)
     if ng:
-        ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹（最后一条，其余淡显）")
+        ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹(末条)")
     # 局部轨迹：全部淡显（覆盖整段路线，看整体意图）+ 等间隔抽样亮显（看细节）
     nlp = len(data["local_path"])
     for (_t, pts, _f) in data["local_path"]:
@@ -496,8 +499,8 @@ def main():
         ax.plot(pts[:, 0], pts[:, 1], "-", lw=LW_THIN + 0.3, color=C_LOCAL, alpha=0.95, zorder=6,
                 path_effects=halo(LW_THIN))
     if nlp:
-        ax.plot([], [], "-", lw=1.15, color=C_LOCAL, alpha=0.28, label=f"局部轨迹（全部 {nlp} 条，淡显）")
-        ax.plot([], [], "-", lw=LW_THIN + 0.3, color=C_LOCAL, label=f"局部轨迹（等间隔抽样 {len(pick)} 条）")
+        ax.plot([], [], "-", lw=1.15, color=C_LOCAL, alpha=0.28, label=f"局部(全{nlp}条淡)")
+        ax.plot([], [], "-", lw=LW_THIN + 0.3, color=C_LOCAL, label=f"局部(抽样{len(pick)})")
     if stalls:
         ax.plot([s[2] for s in stalls], [s[3] for s in stalls], "X", ms=11, mew=2.5,
                 color=C_STALL, label="卡住点", zorder=6)
@@ -513,11 +516,11 @@ def main():
     for (s, e, x, y) in stalls:
         ax.axvspan(s, e, color="#ffcdd2", alpha=0.55, lw=0,
                    label="卡住" if s == stalls[0][0] else None)
-    ax.plot(T, v_odom, "-", lw=LW_THICK + 1.2, color=C_ACTUAL, label="实测速度（odom 差分，底色带）",
+    ax.plot(T, v_odom, "-", lw=LW_THICK + 1.2, color=C_ACTUAL, label="实测速度(odom带)",
             alpha=0.35, zorder=3)
-    ax.plot(T, v_plan, "--", lw=LW_MID, color=C_LOCAL, label="计划速度（bspline 求导）",
+    ax.plot(T, v_plan, "--", lw=LW_MID, color=C_LOCAL, label="计划速度(bspline)",
             zorder=4, path_effects=halo(LW_MID))
-    ax.plot(T, v_cmd, "-", lw=LW_MID, color=C_CMD, label="指令速度（cmd_vel）",
+    ax.plot(T, v_cmd, "-", lw=LW_MID, color=C_CMD, label="指令速度(cmd_vel)",
             zorder=5, path_effects=halo(LW_MID))
     ax.set_ylim(bottom=0)
     style_ax(ax, "图6  速度跟踪：计划 / 指令 / 实测", "t (s)", "m/s")
