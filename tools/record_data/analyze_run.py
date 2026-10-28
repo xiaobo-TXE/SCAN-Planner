@@ -2,13 +2,13 @@
 # ============================================================================
 # analyze_run.py —— 离线分析一次真机录制，产出 4 张图 + 报告
 #
-#   fig1a_localization_traj.png  : 定位轨迹（WORLD vs MAP，经 TF 对齐）
-#   fig1b_localization_dev.png   : 定位偏差 + TF 修正量随时间
-#   fig1c_localization_state.png : /loc/status 定位状态
-#   fig1d_localization_rmse.png  : 定位 rmse（匹配残差）
-#   fig2_planning.png            : 全局 / 局部 / 实际 轨迹（全局已按 TF 变到 WORLD）
-#   fig3_speed.png               : 计划 / 指令 / 实测 速度
-#   fig4_lanes.png               : 事件泳道（冻结 / 卡住 / 事件标注）
+#   1_定位轨迹.png    : 定位轨迹（WORLD vs MAP，经 TF 对齐）
+#   2_定位偏差.png    : 两定位源偏差 + TF 修正量随时间
+#   3_定位状态.png    : /loc/status 定位状态
+#   4_定位rmse.png    : 定位 rmse（匹配残差）
+#   5_轨迹对比.png    : 全局 / 局部 / 实际 轨迹（全局已按 TF 变到 WORLD）
+#   6_速度对比.png    : 计划 / 指令 / 实测 速度
+#   7_事件时间轴.png  : 冻结 / 卡住 / 事件标注
 #
 # 用法（先 source ROS；解析 Bspline 等自定义类型需要工作空间）：
 #   source /opt/ros/humble/setup.bash
@@ -32,6 +32,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.patheffects as pe
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bag_tools import bspline_eval, open_reader, resolve_type, validate_bspline  # noqa: E402
@@ -76,6 +77,11 @@ def style_ax(ax, title=None, xlabel=None, ylabel=None):
     if ylabel:
         ax.set_ylabel(ylabel, fontsize=11)
     ax.tick_params(labelsize=10)
+
+
+def halo(lw):
+    """白色描边：让叠在别的线上的曲线仍然清晰"""
+    return [pe.Stroke(linewidth=lw + 2.5, foreground="white", alpha=0.9), pe.Normal()]
 
 
 def save(fig, path):
@@ -395,17 +401,18 @@ def main():
 
     # =============================== 图1a：定位轨迹 ===============================
     fig, ax = plt.subplots(figsize=(10, 10))
-    ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK, color=C_ACTUAL,
-            label="WORLD 系 /lio/robo/odom", zorder=4)
+    ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK + 1.2, color=C_ACTUAL, alpha=0.45,
+            label="WORLD 系 /lio/robo/odom（底色带）", zorder=2)
     if map_in_world is not None:
         ax.plot(map_in_world[:, 0], map_in_world[:, 1], "--", lw=LW_MID, color=C_MAP,
-                label="MAP 系 /loc/robo/odom（经 TF 变到 world）", zorder=5)
+                label="MAP 系 /loc/robo/odom（经 TF 变到 world）", zorder=5,
+                path_effects=halo(LW_MID))
     ax.plot(P[0, 0], P[0, 1], "o", ms=12, color="k", label="起点", zorder=6)
     ax.plot(P[-1, 0], P[-1, 1], "s", ms=12, color="k", label="终点", zorder=6)
     ax.set_aspect("equal")
-    style_ax(ax, "图1a  定位轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
+    style_ax(ax, "图1  定位轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
     ax.legend(fontsize=11, framealpha=0.9, loc="best")
-    save(fig, os.path.join(figs, "fig1a_localization_traj.png"))
+    save(fig, os.path.join(figs, "1_定位轨迹.png"))
 
     # =============================== 图1b：偏差 / TF 修正量 ===============================
     fig, ax = plt.subplots(figsize=(12, 4.5))
@@ -416,61 +423,76 @@ def main():
     else:
         ax.text(0.5, 0.5, "缺少 /tf 或 /loc/robo/odom，无法做对齐对比",
                 ha="center", va="center", transform=ax.transAxes, fontsize=12)
-    style_ax(ax, "图1b  定位偏差与 TF 修正量随时间", "t (s)", "m")
-    save(fig, os.path.join(figs, "fig1b_localization_dev.png"))
+    style_ax(ax, "图2  定位偏差与 TF 修正量随时间", "t (s)", "m")
+    save(fig, os.path.join(figs, "2_定位偏差.png"))
 
     # =============================== 图1c：定位状态 ===============================
     if st_t:
         fig, ax = plt.subplots(figsize=(12, 3.8))
         ax.step(st_t, st_v, where="post", lw=LW_MID, color=C_CORR)
         ax.set_ylim(min(1.5, min(st_v) - 0.3), 3.4)
-        style_ax(ax, "图1c  /loc/status 定位状态（3 = 正在跟踪）", "t (s)", "state")
-        save(fig, os.path.join(figs, "fig1c_localization_state.png"))
+        style_ax(ax, "图3  定位状态 /loc/status（3 = 正在跟踪）", "t (s)", "state")
+        save(fig, os.path.join(figs, "3_定位状态.png"))
 
     # =============================== 图1d：定位 rmse ===============================
     if "rmse" in st_extra:
         arr = st_extra["rmse"]
         fig, ax = plt.subplots(figsize=(12, 3.8))
         ax.plot([p[0] for p in arr], [p[1] for p in arr], "-", lw=LW_THIN, color=C_DEV)
-        style_ax(ax, "图1d  定位 rmse（激光帧与先验地图的匹配残差）", "t (s)", "rmse")
-        save(fig, os.path.join(figs, "fig1d_localization_rmse.png"))
+        style_ax(ax, "图4  定位 rmse（匹配残差）", "t (s)", "rmse")
+        save(fig, os.path.join(figs, "4_定位rmse.png"))
 
     # =============================== 图2：规划 ===============================
     fig, ax = plt.subplots(figsize=(10, 10))
-    for (t, pts, frame) in data["global_path"]:
+    # 实际轨迹：半透明宽带打底（最底层）
+    ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK + 1.6, color=C_ACTUAL, alpha=0.40,
+            label="实际轨迹（odom，底色带）", zorder=1)
+    # 全局轨迹：只有最后一条突出显示，之前的很淡（体现路线演化又不糊）
+    ng = len(data["global_path"])
+    for k, (t, pts, frame) in enumerate(data["global_path"]):
         Tm = tf.lookup(frame, a.world_frame, t) if tf is not None else None
         q = apply_T(Tm, pts) if Tm is not None else pts
-        ax.plot(q[:, 0], q[:, 1], "--", lw=LW_MID, color=C_GLOBAL, alpha=0.75, zorder=2)
-    if data["global_path"]:
-        ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹（已变到 world）")
-    for (t, pts, _f) in data["local_path"][-40:]:
-        ax.plot(pts[:, 0], pts[:, 1], "-", lw=LW_THIN, color=C_LOCAL, alpha=0.6, zorder=3)
-    if data["local_path"]:
-        ax.plot([], [], "-", lw=LW_THIN, color=C_LOCAL, label="局部轨迹（后 40 条）")
-    ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK, color=C_ACTUAL, label="实际轨迹（odom）", zorder=4)
+        is_last = (k == ng - 1)
+        ax.plot(q[:, 0], q[:, 1], "--",
+                lw=LW_MID if is_last else 1.0,
+                color=C_GLOBAL,
+                alpha=0.95 if is_last else 0.18,
+                zorder=5 if is_last else 2,
+                path_effects=halo(LW_MID) if is_last else None)
+    if ng:
+        ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹（最后一条，其余淡显）")
+    # 局部轨迹：只画最近 8 条（画 40 条会糊成一团）
+    nlp = min(8, len(data["local_path"]))
+    for (t, pts, _f) in data["local_path"][-nlp:]:
+        ax.plot(pts[:, 0], pts[:, 1], "-", lw=LW_THIN + 0.2, color=C_LOCAL, alpha=0.95, zorder=6,
+                path_effects=halo(LW_THIN))
+    if nlp:
+        ax.plot([], [], "-", lw=LW_THIN + 0.2, color=C_LOCAL, label=f"局部轨迹（最近 {nlp} 条）")
     if stalls:
         ax.plot([s[2] for s in stalls], [s[3] for s in stalls], "X", ms=11, mew=2.5,
                 color=C_STALL, label="卡住点", zorder=6)
     ax.plot(P[0, 0], P[0, 1], "o", ms=13, color="k", label="起点", zorder=7)
     ax.plot(P[-1, 0], P[-1, 1], "s", ms=13, color="k", label="终点", zorder=7)
     ax.set_aspect("equal")
-    style_ax(ax, "图2  全局 / 局部 / 实际 轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
+    style_ax(ax, "图5  全局 / 局部 / 实际 轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
     ax.legend(fontsize=11, framealpha=0.9, loc="best")
-    save(fig, os.path.join(figs, "fig2_planning.png"))
+    save(fig, os.path.join(figs, "5_轨迹对比.png"))
 
     # =============================== 图3：速度 ===============================
     fig, ax = plt.subplots(figsize=(13, 4.6))
     for (s, e, x, y) in stalls:
         ax.axvspan(s, e, color="#ffcdd2", alpha=0.55, lw=0,
                    label="卡住" if s == stalls[0][0] else None)
-    ax.plot(T, v_plan, "--", lw=LW_MID, color=C_LOCAL, label="计划速度（bspline 求导）", zorder=4)
-    ax.plot(T, v_cmd, "-", lw=LW_MID, color=C_CMD, label="指令速度（cmd_vel）", zorder=5)
-    ax.plot(T, v_odom, "-", lw=LW_THICK, color=C_ACTUAL, label="实测速度（odom 差分）",
-            alpha=0.85, zorder=6)
+    ax.plot(T, v_odom, "-", lw=LW_THICK + 1.2, color=C_ACTUAL, label="实测速度（odom 差分，底色带）",
+            alpha=0.35, zorder=3)
+    ax.plot(T, v_plan, "--", lw=LW_MID, color=C_LOCAL, label="计划速度（bspline 求导）",
+            zorder=4, path_effects=halo(LW_MID))
+    ax.plot(T, v_cmd, "-", lw=LW_MID, color=C_CMD, label="指令速度（cmd_vel）",
+            zorder=5, path_effects=halo(LW_MID))
     ax.set_ylim(bottom=0)
-    style_ax(ax, "图3  速度跟踪：计划 / 指令 / 实测", "t (s)", "m/s")
+    style_ax(ax, "图6  速度跟踪：计划 / 指令 / 实测", "t (s)", "m/s")
     ax.legend(fontsize=11, framealpha=0.9, loc="upper right")
-    save(fig, os.path.join(figs, "fig3_speed.png"))
+    save(fig, os.path.join(figs, "6_速度对比.png"))
 
     # =============================== 图4：泳道 ===============================
     fig, ax = plt.subplots(figsize=(12, 3.6))
@@ -500,9 +522,9 @@ def main():
     ax.set_yticks(range(len(lanes)))
     ax.set_yticklabels([l[0] for l in lanes])
     ax.set_ylim(-0.6, len(lanes) + 0.6); ax.set_xlabel("t (s)")
-    ax.set_title(f"图4  事件泳道（竖线=事件标注 {n_ev} 条，黄=手动、绿=自动）", fontsize=14, fontweight="bold")
+    ax.set_title(f"图7  事件泳道（竖线=事件标注 {n_ev} 条，黄=手动、绿=自动）", fontsize=14, fontweight="bold")
     ax.grid(True, axis="x", ls="--", alpha=0.35)
-    save(fig, os.path.join(figs, "fig4_lanes.png"))
+    save(fig, os.path.join(figs, "7_事件时间轴.png"))
 
     # =============================== 报告 ===============================
     stall_secs = sum(e - s for (s, e, _, _) in stalls)
@@ -546,13 +568,13 @@ def main():
         sus.append("- 未发现明显异常。")
     L += ["## 自动结论 / 可疑点", ""] + sus + ["",
           "## 图", "",
-          "![图1a 定位轨迹](figs/fig1a_localization_traj.png)",
-          "![图1b 定位偏差](figs/fig1b_localization_dev.png)",
-          "![图1c 定位状态](figs/fig1c_localization_state.png)",
-          "![图1d 定位rmse](figs/fig1d_localization_rmse.png)",
-          "![图2 规划](figs/fig2_planning.png)",
-          "![图3 速度](figs/fig3_speed.png)",
-          "![图4 事件](figs/fig4_lanes.png)", ""]
+          "![1 定位轨迹](figs/1_定位轨迹.png)",
+          "![2 定位偏差](figs/2_定位偏差.png)",
+          "![3 定位状态](figs/3_定位状态.png)",
+          "![4 定位rmse](figs/4_定位rmse.png)",
+          "![5 轨迹对比](figs/5_轨迹对比.png)",
+          "![6 速度对比](figs/6_速度对比.png)",
+          "![7 事件时间轴](figs/7_事件时间轴.png)", ""]
     open(os.path.join(out, "report.md"), "w").write("\n".join(L) + "\n")
 
     print(f"[✓] 报告：{os.path.join(out, 'report.md')}")
