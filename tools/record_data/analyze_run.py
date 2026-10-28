@@ -596,6 +596,54 @@ def main():
     ax.grid(True, axis="x", ls="--", alpha=0.35)
     save(fig, os.path.join(figs, "7_事件时间轴.png"))
 
+    # =============================== 图8：轨迹对比（全部转到 MAP 系，仅 xy） ===============================
+    def to_frame(pts, times, dst, src):
+        """把每个点（各自带时间）从 src 系变到 dst 系；TF 按时间取最近"""
+        out = []
+        for pp, tt in zip(pts, times):
+            Tm = tf.lookup(src, dst, tt) if tf is not None else None
+            out.append(apply_T(Tm, np.array([pp]))[0] if Tm is not None else np.asarray(pp, float))
+        return np.array(out)
+
+    if tf is not None:
+        fig, ax = plt.subplots(figsize=(12, 9))
+        sub = np.arange(0, len(od), max(1, len(od) // 4000))
+        pm = to_frame(P[sub], od[sub, 0], a.map_frame, a.world_frame)
+        ax.plot(pm[:, 0], pm[:, 1], "-", lw=LW_THICK + 1.6, color=C_ACTUAL, alpha=0.40,
+                label="实际轨迹(odom：world→map)", zorder=1)
+        nlp = len(data["local_path"])
+        for (t, pts, _f) in data["local_path"]:
+            q = to_frame(pts, [t] * len(pts), a.map_frame, a.world_frame)
+            ax.plot(q[:, 0], q[:, 1], "-", lw=1.2, color=C_LOCAL, alpha=0.70, zorder=4)
+        if nlp:
+            ax.plot([], [], "-", lw=1.2, color=C_LOCAL, alpha=0.85,
+                    label=f"局部轨迹(全部 {nlp} 条，world→map)")
+        ng = len(data["global_path"])
+        for k, (t, pts, fr) in enumerate(data["global_path"]):
+            q = to_frame(pts, [t] * len(pts), a.map_frame, fr)
+            is_last = (k == ng - 1)
+            ax.plot(q[:, 0], q[:, 1], "--",
+                    lw=(LW_MID + 0.6) if is_last else LW_MID, color=C_GLOBAL,
+                    alpha=0.95 if is_last else 0.70,
+                    zorder=7 if is_last else 5,
+                    path_effects=halo(LW_MID) if is_last else None)
+        if ng:
+            ax.plot([], [], "--", lw=LW_MID + 0.6, color=C_GLOBAL,
+                    label=f"全局轨迹(全部 {ng} 条，本身就在 map)")
+        se = to_frame([P[0], P[-1]], [od[0, 0], od[-1, 0]], a.map_frame, a.world_frame)
+        ax.plot(se[0, 0], se[0, 1], "o", ms=13, color="k", label="起点", zorder=9)
+        ax.plot(se[1, 0], se[1, 1], "s", ms=13, color="k", label="终点", zorder=9)
+        if stalls:
+            stt = [od[0, 0] + (s0 + e0) / 2 for (s0, e0, _x, _y) in stalls]
+            sp = to_frame([[sx, sy, 0.0] for (_a, _b, sx, sy) in stalls], stt,
+                          a.map_frame, a.world_frame)
+            ax.plot(sp[:, 0], sp[:, 1], "X", ms=11, mew=2.5, color=C_STALL,
+                    label="卡住点", zorder=8)
+        ax.set_aspect("equal")
+        style_ax(ax, "图8  轨迹对比（全部转到 MAP 系，仅 xy）", "x (m)", "y (m)")
+        corner_legend(ax)
+        save(fig, os.path.join(figs, "8_轨迹对比_map系.png"))
+
     # =============================== 报告 ===============================
     stall_secs = sum(e - s for (s, e, _, _) in stalls)
     bad_state = sum(1 for v in st_v if v != 3) if st_t else 0
@@ -646,7 +694,8 @@ def main():
           "![4 定位rmse](figs/4_定位rmse.png)",
           "![5 轨迹对比](figs/5_轨迹对比.png)",
           "![6 速度对比](figs/6_速度对比.png)",
-          "![7 事件时间轴](figs/7_事件时间轴.png)", ""]
+          "![7 事件时间轴](figs/7_事件时间轴.png)",
+          "![8 轨迹对比(MAP系)](figs/8_轨迹对比_map系.png)", ""]
     open(os.path.join(out, "report.md"), "w").write("\n".join(L) + "\n")
 
     print(f"[✓] 报告：{os.path.join(out, 'report.md')}")
