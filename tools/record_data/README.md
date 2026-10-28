@@ -29,8 +29,9 @@ bash record_run.sh stair_corner --duration 120
 # 点云短包（默认 30s）
 bash record_run.sh corner_points --points --duration 20
 
-# 精简档（去掉两朵大点云，约省 37%）/ 开启 zstd 压缩（省空间，但分析前需解压）
+# 精简档（去掉两朵大点云，约省 37%）/ 只录定位+规划+速度 / 开启 zstd 压缩
 bash record_run.sh run1 --light
+bash record_run.sh run1 --slim        # 只录 定位/全局/局部/速度，约 0.1-0.2 MB/s
 bash record_run.sh run1 --compress
 
 # 运行中标注事件（另开终端）
@@ -78,20 +79,21 @@ bash record_run.sh stair_corner --auto-events
 source /opt/ros/humble/setup.bash
 source ~/scan_planner_github_ws/install/setup.bash   # 用于解析 Bspline 等自定义类型
 python3 analyze_run.py ~/bags/stair_corner_20261027_153000
-python3 analyze_run.py <bag> --with-clouds           # 额外算 RAW/INFLATE 最近障碍距离（慢）
 ```
 
 产出（默认写在 `<bag>/analysis/`）：
 
 | 文件 | 内容 |
 |---|---|
-| `report.md` | 时长/里程/卡住段/跟踪误差/事件 + **自动结论** |
-| `figs/01_traj.png` | 俯视轨迹：odom / global_path / local_path / B样条 / 卡住点 / 起终点 |
-| `figs/02_speed.png` | 指令速度 vs 实测速度（卡住段着色） |
-| `figs/03_track_error.png` | 横向跟踪误差（odom 到当帧 local_path 的最近距离） |
-| `figs/04_state.png` | `/loc/status` 的 state + 质量字段（有该话题时） |
-| `figs/05_lanes.png` | 事件泳道：冻结 / 卡住 / `--event` 与 `AUTO:*` 标注 |
-| `figs/06_nearest_cloud.png` | RAW vs INFLATE 最近障碍距离（需 `--with-clouds`） |
+| `report.md` | 时长/里程/卡住段/速度差/跟踪误差/定位偏差 + 自动结论 |
+| `figs/fig1_localization.png` | **定位测试**：WORLD vs MAP 两条轨迹（MAP 经 `/tf` 的 map→world 变到 WORLD）+ 偏差与 TF 修正量随时间 + state/rmse |
+| `figs/fig2_planning.png` | **规划测试**：全局轨迹（已按 TF 变到 WORLD）/ 局部轨迹 / 实际轨迹 三合一 + 卡住点 |
+| `figs/fig3_speed.png` | **速度跟踪**：计划速度（bspline 求导）/ 指令速度（cmd_vel）/ 实测速度（odom 位置差分） |
+| `figs/fig4_lanes.png` | **事件泳道**：冻结 / 卡住 / `--event` 与 `AUTO:*` 标注 |
+
+> **坐标系提醒**（真机实测）：WORLD 系 = `/lio/robo/odom` + `/local_path` + `/planning/bspline`；
+> MAP 系 = `/loc/robo/odom` + `/global_path`。两者差 ~4.5 m（含约 90° 旋转），**必须录 `/tf`**，
+> 分析脚本靠它把 MAP 系对齐到 WORLD 系（实测对齐后两定位源偏差均值 **0.002 m**、全局路径离实际轨迹 **0.01 m**）。
 
 无真机时可造假包做回归：
 

@@ -12,6 +12,7 @@
 #   bash record_run.sh <标签> --points --duration 20
 #   bash record_run.sh <标签> --compress          # 开启 zstd file 压缩（省空间；分析前需先解压）
 #   bash record_run.sh <标签> --light             # 精简档：去掉两朵大点云（约省 37% 带宽）
+#   bash record_run.sh <标签> --slim              # 只录 定位/全局/局部/速度（约 0.1-0.2 MB/s）
 #   bash record_run.sh <标签> --auto-events       # 自动标注"卡住/恢复"（无需手按）
 #   bash record_run.sh --check                    # 只做"录前自检"，不录
 #   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
@@ -76,6 +77,23 @@ LIGHT_TOPICS=(
   /global_path /global_planner/raw_map /goal_3d /goal_point
   /planning/bspline /local_path /planning/data_display /self_inflation
   /planning/go2_execution_frozen /cmd_vel /motion_enabled /test_event
+)
+
+# --slim：只录"定位 / 全局 / 局部 / 速度"四类（约 0.1-0.2 MB/s，15 分钟约 100-200 MB）
+#   注意 /tf /tf_static 必须有 —— 分析时要把 MAP 系对齐到 WORLD 系
+SLIM_TOPICS=(
+  # 定位
+  /loc/robo/odom /loc/status /lio/robo/odom
+  # 全局
+  /global_path /goal_3d
+  # 局部
+  /planning/bspline /local_path
+  # 速度
+  /cmd_vel /motion_enabled /dog_odom
+  # 坐标系（分析对齐必需）
+  /tf /tf_static
+  # 诊断 / 事件
+  /planning/go2_execution_frozen /test_event
 )
 
 # ---------------------------------------------------------------------------
@@ -209,7 +227,7 @@ META
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
-MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; EVENT_MSG=""; AUTO_EVENTS=0
+MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; SLIM=0; EVENT_MSG=""; AUTO_EVENTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)       MODE="check" ;;
@@ -220,6 +238,7 @@ while [ $# -gt 0 ]; do
     --no-compress) COMPRESS=0 ;;
     --compress)    COMPRESS=1 ;;
     --light)       LIGHT=1 ;;
+    --slim)        SLIM=1 ;;
     --auto-events) AUTO_EVENTS=1 ;;
     --stop)        MODE="stop" ;;
     -h|--help)     sed -n '2,25p' "$0"; exit 0 ;;
@@ -262,6 +281,9 @@ if [ "$POINTS" = 1 ]; then
   TOPICS=("${POINTS_TOPICS[@]}")
   [ -n "$DURATION" ] || DURATION=30
   LABEL_NOTE="点云短包"
+elif [ "$SLIM" = 1 ]; then
+  TOPICS=("${SLIM_TOPICS[@]}")
+  LABEL_NOTE="精简档(定位/规划/速度)"
 elif [ "$LIGHT" = 1 ]; then
   TOPICS=("${LIGHT_TOPICS[@]}")
   LABEL_NOTE="精简包"
