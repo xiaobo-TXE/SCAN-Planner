@@ -32,7 +32,8 @@ bash record_run.sh corner_points --points --duration 20
 # 精简档（去掉两朵大点云，约省 37%）/ 只录定位+规划+速度 / 开启 zstd 压缩
 bash record_run.sh run1 --light
 bash record_run.sh run1 --slim        # 只录 定位/全局/局部/速度，约 0.1-0.2 MB/s
-bash record_run.sh corner --tracks    # 轨迹+滑动地图档（默认 120s 自动停，≈47 MB/s）
+bash record_run.sh corner --tracks    # 轨迹+滑动地图档（默认 300s 自动停，≈47 MB/s）
+bash record_run.sh corner --tracks --manual   # 同上但不限时，靠 Ctrl-C 停
 bash record_run.sh run1 --compress
 
 # 运行中标注事件（另开终端）

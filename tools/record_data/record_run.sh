@@ -13,7 +13,8 @@
 #   bash record_run.sh <标签> --compress          # 开启 zstd file 压缩（省空间；分析前需先解压）
 #   bash record_run.sh <标签> --light             # 精简档：去掉两朵大点云（约省 37% 带宽）
 #   bash record_run.sh <标签> --slim              # 只录 定位/全局/局部/速度（约 0.1-0.2 MB/s）
-#   bash record_run.sh <标签> --tracks            # 轨迹+滑动地图专用档（默认 120s 自动停，≈47 MB/s）
+#   bash record_run.sh <标签> --tracks            # 轨迹+滑动地图专用档（默认 300s 自动停，≈47 MB/s）
+#   bash record_run.sh <标签> --manual            # 不限时，靠 Ctrl-C 停（任何档位都可加）
 #   bash record_run.sh <标签> --auto-events       # 自动标注"卡住/恢复"（无需手按）
 #   bash record_run.sh --check                    # 只做"录前自检"，不录
 #   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
@@ -105,8 +106,9 @@ SLIM_TOPICS=(
 #     实时轨迹   /lio/robo/odom        （WORLD 系，实际走过的）
 #     滑动地图   /grid_map/occupancy + /grid_map/occupancy_inflate + /grid_map/sliding_map_bbox
 #   注意带宽：滑动地图是本系统里最贵的两朵 —— 实测 occupancy_inflate 40.9 MB/s、
-#   occupancy 5.7 MB/s，合计 ≈47 MB/s（≈2.8 GB/min）。所以本档**默认 120s 自动停**，
-#   避免忘记 Ctrl-C 把盘写满；手动停请用 `--duration 0`。
+#   occupancy 5.7 MB/s，合计 ≈47 MB/s（≈2.8 GB/min）。所以本档**默认 300s 自动停**
+#   （300s ≈ 14 GB），避免忘记 Ctrl-C 把盘写满；想不限时用 `--manual`（或 `--duration 0`）。
+#   另外注意：Ctrl-C 任何时候都能停（自动停只是上限），不用等它到点。
 TRACKS_TOPICS=(
   # 坐标系（缺了什么都对不上；MAP 系靠它对齐到 WORLD 系）
   /tf /tf_static
@@ -255,7 +257,7 @@ META
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
-MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; SLIM=0; TRACKS=0; EVENT_MSG=""; AUTO_EVENTS=0
+MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; SLIM=0; TRACKS=0; MANUAL=0; EVENT_MSG=""; AUTO_EVENTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)       MODE="check" ;;
@@ -268,9 +270,10 @@ while [ $# -gt 0 ]; do
     --light)       LIGHT=1 ;;
     --slim)        SLIM=1 ;;
     --tracks)      TRACKS=1 ;;
+    --manual)      MANUAL=1 ;;
     --auto-events) AUTO_EVENTS=1 ;;
     --stop)        MODE="stop" ;;
-    -h|--help)     sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help)     sed -n '2,28p' "$0"; exit 0 ;;
     -*)            echo "未知参数：$1"; exit 1 ;;
     *)             LABEL="$1" ;;
   esac
@@ -298,7 +301,7 @@ esac
 
 # 录制模式：先校验必须参数，再动目录/环境（避免报用法时就把 ~/bags 建出来）
 [ -n "$LABEL" ] || {
-  echo "用法：bash record_run.sh <标签> [--duration N] [--tracks] [--points] [--slim] [--light] [--no-compress] [--storage mcap]"
+  echo "用法：bash record_run.sh <标签> [--duration N] [--manual] [--tracks] [--points] [--slim] [--light] [--no-compress] [--storage mcap]"
   echo "      bash record_run.sh --check | --event \"事件描述\""
   exit 1
 }
@@ -312,10 +315,9 @@ if [ "$POINTS" = 1 ]; then
   LABEL_NOTE="点云短包"
 elif [ "$TRACKS" = 1 ]; then
   TOPICS=("${TRACKS_TOPICS[@]}")
-  # 这个档只有滑动地图贵（≈47 MB/s），忘了停很容易写满盘 → 默认 120s 自动停。
-  # 想手动停就写 `--duration 0`。
-  [ -n "$DURATION" ] || DURATION=120
-  if [ "$DURATION" = "0" ]; then DURATION=""; fi
+  # 这个档只有滑动地图贵（≈47 MB/s）：默认 300s（≈14 GB）自动停，防忘记停写满盘。
+  # 不限时就加 --manual。注意 Ctrl-C 任何时候都能停，自动停只是上限。
+  [ -n "$DURATION" ] || DURATION=300
   LABEL_NOTE="轨迹+滑动地图档"
 elif [ "$SLIM" = 1 ]; then
   TOPICS=("${SLIM_TOPICS[@]}")
@@ -327,6 +329,10 @@ else
   TOPICS=("${DIAG_TOPICS[@]}")
   LABEL_NOTE="诊断包"
 fi
+
+# --manual（与 --duration 0 等价）：不限时，靠 Ctrl-C 停。
+# 放在档位选择之后 → 覆盖档位给的默认时长。
+if [ "$MANUAL" = 1 ] || [ "$DURATION" = "0" ]; then DURATION=""; fi
 
 precheck || exit 1
 
