@@ -399,6 +399,26 @@ def main():
 
     # TF：map → world
     tf = TfIndex(data["tf"]) if data["tf"] else None
+    # 过滤"锁存旧路径"：/global_path 是 transient_local，录制开始时会把开录前遗留的
+    # 那一条也收进来。判据：全局路径首点（≈下发目标时的机器人位置）与当时机器人位置
+    # 相差过大 → 视为 stale，直接丢弃。
+    if tf is not None and data["global_path"]:
+        kept = []
+        for (t_g, pts_g, fr_g) in data["global_path"]:
+            Tg = tf.lookup(fr_g, a.map_frame, t_g)
+            To = tf.lookup(a.world_frame, a.map_frame, t_g)
+            if Tg is None or To is None:
+                kept.append((t_g, pts_g, fr_g))
+                continue
+            p0 = apply_T(Tg, pts_g[:1])[0]
+            jj = max(0, min(int(np.searchsorted(od[:, 0], t_g)), len(od) - 1))
+            pr = apply_T(To, P[jj:jj + 1])[0]
+            dgap = float(np.linalg.norm(p0[:2] - pr[:2]))
+            if dgap <= 3.0:
+                kept.append((t_g, pts_g, fr_g))
+            else:
+                print(f"[i] 丢弃 stale 全局路径（首点离当时机器人 {dgap:.1f} m）")
+        data["global_path"] = kept
     od_map = np.array(data["odom_map"]) if data["odom_map"] else None
     dev_t, dev_v, corr_v = [], [], []
     map_in_world = []
@@ -607,8 +627,7 @@ def main():
 
     if tf is not None:
         fig, ax = plt.subplots(figsize=(12, 9))
-        sub = np.arange(0, len(od), max(1, len(od) // 4000))
-        pm = to_frame(P[sub], od[sub, 0], a.map_frame, a.world_frame)
+        pm = to_frame(P, od[:, 0], a.map_frame, a.world_frame)   # 逐帧、各自时刻的 TF
         ax.plot(pm[:, 0], pm[:, 1], "-", lw=LW_THICK + 1.6, color=C_ACTUAL, alpha=0.40,
                 label="实际轨迹(odom：world→map)", zorder=1)
         nlp = len(data["local_path"])
