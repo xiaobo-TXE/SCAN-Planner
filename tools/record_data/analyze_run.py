@@ -331,15 +331,31 @@ def main():
         dt = max(od[i, 0] - od[j, 0], 1e-3)
         v_odom[i] = float(np.linalg.norm(P[i, :2] - P[j, :2]) / dt)
 
-    # 指令速度
+    # 机体速度：实测(vx,vy,wz) —— 世界系位移差旋转到机体系；yaw 差求 wz
+    yaw = np.unwrap(np.arctan2(2 * (od[:, 7] * od[:, 6] + od[:, 4] * od[:, 5]),
+                               1 - 2 * (od[:, 5] ** 2 + od[:, 6] ** 2)))
+    vx_a = np.zeros(len(od)); vy_a = np.zeros(len(od)); wz_a = np.zeros(len(od))
+    for i in range(len(od)):
+        j = min(np.searchsorted(od[:, 0], od[i, 0] - a.window), i)
+        dt = max(od[i, 0] - od[j, 0], 1e-3)
+        dx = P[i, 0] - P[j, 0]; dy = P[i, 1] - P[j, 1]
+        c = np.cos(yaw[i]); sn = np.sin(yaw[i])
+        vx_a[i] = (c * dx + sn * dy) / dt
+        vy_a[i] = (-sn * dx + c * dy) / dt
+        dyaw = (yaw[i] - yaw[j] + np.pi) % (2 * np.pi) - np.pi
+        wz_a[i] = dyaw / dt
+
+    # 下发速度（cmd_vel，机体系）
     cmd = data["cmd"]
     v_cmd = np.zeros(len(od))
+    vx_c = np.zeros(len(od)); vy_c = np.zeros(len(od)); wz_c = np.zeros(len(od))
     if cmd:
         ca = np.array(cmd)
         for i in range(len(od)):
             k = np.searchsorted(ca[:, 0], od[i, 0]) - 1
             if k >= 0:
-                v_cmd[i] = max(abs(ca[k, 1]), abs(ca[k, 2]))
+                vx_c[i], vy_c[i], wz_c[i] = ca[k, 1], ca[k, 2], ca[k, 3]
+                v_cmd[i] = float(np.hypot(ca[k, 1], ca[k, 2]))
 
     # 卡住段
     stalls, i = [], 0
@@ -380,25 +396,6 @@ def main():
         if good.sum() > 2:
             err = np.interp(np.arange(len(err)), np.where(good)[0], err[good])
 
-    # 计划速度（在当帧 bspline 上找离机器人最近点，取那里的速度）
-    bsp = data["bspline"]
-    v_plan = np.full(len(od), np.nan)
-    if bsp:
-        bt = np.array([x[0] for x in bsp])
-        step = max(1, int(0.2 / dt_med))
-        for i in range(0, len(od), step):
-            k = np.searchsorted(bt, od[i, 0] + 1e-9) - 1
-            if k < 0 or od[i, 0] - bt[k] > 3.0:
-                continue
-            _, pts, kn, order = bsp[k]
-            ts = np.linspace(kn[order], kn[len(pts)], 40)
-            xy = np.array([bspline_eval(list(kn), list(pts), order, x) for x in ts])
-            j = int(np.argmin(np.linalg.norm(xy[:, :2] - P[i, :2], axis=1)))
-            j1, j2 = max(j - 1, 0), min(j + 1, len(ts) - 1)
-            v_plan[i] = float(np.linalg.norm(xy[j2] - xy[j1]) / max(ts[j2] - ts[j1], 1e-6))
-        good = ~np.isnan(v_plan)
-        if good.sum() > 2:
-            v_plan = np.interp(np.arange(len(v_plan)), np.where(good)[0], v_plan[good])
 
     # TF：map → world
     tf = TfIndex(data["tf"]) if data["tf"] else None
@@ -470,26 +467,50 @@ def main():
         style_ax(ax, "图4  定位 rmse（匹配残差）", "t (s)", "rmse")
         save(fig, os.path.join(figs, "4_定位rmse.png"))
 
-    # =============================== 图2：规划 ===============================
-    fig, ax = plt.subplots(figsize=(10, 10))
-    # 实际轨迹：半透明宽带打底（最底层）
+    # =============================== 图5：规划（俯视 + 高度） ===============================
+    # 全局轨迹先按 TF 变到 WORLD（画图和取高度都用它）
+    gp_world = []
+    for (t, pts, frame) in data["global_path"]:
+        Tm = tf.lookup(frame, a.world_frame, t) if tf is not None else None
+        gp_world.append((t, apply_T(Tm, pts) if Tm is not None else pts, frame))
+
+    def nearest_z(paths, step_s=0.2, max_age=3.0):
+        """每一时刻，取"当帧路径上离机器人最近点"的 z"""
+        out = np.full(len(od), np.nan)
+        if not paths:
+            return out
+        pt = np.array([x[0] for x in paths])
+        step = max(1, int(step_s / dt_med))
+        for i in range(0, len(od), step):
+            k = np.searchsorted(pt, od[i, 0] + 1e-9) - 1
+            if k < 0 or od[i, 0] - pt[k] > max_age:
+                continue
+            pts = paths[k][1]
+            j = int(np.argmin(np.linalg.norm(pts[:, :2] - P[i, :2], axis=1)))
+            out[i] = pts[j, 2]
+        good = ~np.isnan(out)
+        if good.sum() > 2:
+            out = np.interp(np.arange(len(out)), np.where(good)[0], out[good])
+        return out
+
+    z_loc = nearest_z(data["local_path"])
+    z_glo = nearest_z(gp_world)
+
+    fig, (ax, axz) = plt.subplots(2, 1, figsize=(12, 12),
+                                  gridspec_kw={"height_ratios": [2.1, 1.0]})
+    # ---------- 上：俯视 x-y ----------
     ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK + 1.6, color=C_ACTUAL, alpha=0.40,
             label="实际轨迹(odom带)", zorder=1)
-    # 全局轨迹：只有最后一条突出显示，之前的很淡（体现路线演化又不糊）
-    ng = len(data["global_path"])
-    for k, (t, pts, frame) in enumerate(data["global_path"]):
-        Tm = tf.lookup(frame, a.world_frame, t) if tf is not None else None
-        q = apply_T(Tm, pts) if Tm is not None else pts
+    ng = len(gp_world)
+    for k, (_t, q, _f) in enumerate(gp_world):
         is_last = (k == ng - 1)
         ax.plot(q[:, 0], q[:, 1], "--",
-                lw=LW_MID if is_last else 1.0,
-                color=C_GLOBAL,
+                lw=LW_MID if is_last else 1.0, color=C_GLOBAL,
                 alpha=0.95 if is_last else 0.18,
                 zorder=5 if is_last else 2,
                 path_effects=halo(LW_MID) if is_last else None)
     if ng:
         ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹(末条)")
-    # 局部轨迹：全部淡显（覆盖整段路线，看整体意图）+ 等间隔抽样亮显（看细节）
     nlp = len(data["local_path"])
     for (_t, pts, _f) in data["local_path"]:
         ax.plot(pts[:, 0], pts[:, 1], "-", lw=1.15, color=C_LOCAL, alpha=0.28, zorder=3)
@@ -502,29 +523,47 @@ def main():
         ax.plot([], [], "-", lw=1.15, color=C_LOCAL, alpha=0.28, label=f"局部(全{nlp}条淡)")
         ax.plot([], [], "-", lw=LW_THIN + 0.3, color=C_LOCAL, label=f"局部(抽样{len(pick)})")
     if stalls:
-        ax.plot([s[2] for s in stalls], [s[3] for s in stalls], "X", ms=11, mew=2.5,
-                color=C_STALL, label="卡住点", zorder=6)
-    ax.plot(P[0, 0], P[0, 1], "o", ms=13, color="k", label="起点", zorder=7)
-    ax.plot(P[-1, 0], P[-1, 1], "s", ms=13, color="k", label="终点", zorder=7)
+        ax.plot([q[2] for q in stalls], [q[3] for q in stalls], "X", ms=11, mew=2.5,
+                color=C_STALL, label="卡住点", zorder=7)
+    ax.plot(P[0, 0], P[0, 1], "o", ms=13, color="k", label="起点", zorder=8)
+    ax.plot(P[-1, 0], P[-1, 1], "s", ms=13, color="k", label="终点", zorder=8)
     ax.set_aspect("equal")
-    style_ax(ax, "图5  全局 / 局部 / 实际 轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
+    style_ax(ax, "图5a  三条轨迹对比（俯视，统一到 WORLD 系）", "x (m)", "y (m)")
     corner_legend(ax)
+
+    # ---------- 下：高度 z 随时间 ----------
+    for (qs, qe, _x, _y) in stalls:
+        axz.axvspan(qs, qe, color="#ffcdd2", alpha=0.45, lw=0)
+    axz.plot(T, P[:, 2], "-", lw=LW_THICK, color=C_ACTUAL, label="实际高度 z(odom)", zorder=3)
+    if not np.all(np.isnan(z_glo)):
+        axz.plot(T, z_glo, "--", lw=LW_MID, color=C_GLOBAL, label="全局规划高度 z", zorder=4,
+                 path_effects=halo(LW_MID))
+    if not np.all(np.isnan(z_loc)):
+        axz.plot(T, z_loc, "-", lw=LW_THIN + 0.4, color=C_LOCAL, label="局部规划高度 z", zorder=5,
+                 path_effects=halo(LW_THIN))
+    style_ax(axz, "图5b  高度 z 随时间（实际 / 局部规划 / 全局规划）", "t (s)", "z (m)")
+    corner_legend(axz)
     save(fig, os.path.join(figs, "5_轨迹对比.png"))
 
-    # =============================== 图3：速度 ===============================
-    fig, ax = plt.subplots(figsize=(13, 4.6))
-    for (s, e, x, y) in stalls:
-        ax.axvspan(s, e, color="#ffcdd2", alpha=0.55, lw=0,
-                   label="卡住" if s == stalls[0][0] else None)
-    ax.plot(T, v_odom, "-", lw=LW_THICK + 1.2, color=C_ACTUAL, label="实测速度(odom带)",
-            alpha=0.35, zorder=3)
-    ax.plot(T, v_plan, "--", lw=LW_MID, color=C_LOCAL, label="计划速度(bspline)",
-            zorder=4, path_effects=halo(LW_MID))
-    ax.plot(T, v_cmd, "-", lw=LW_MID, color=C_CMD, label="指令速度(cmd_vel)",
-            zorder=5, path_effects=halo(LW_MID))
-    ax.set_ylim(bottom=0)
-    style_ax(ax, "图6  速度跟踪：计划 / 指令 / 实测", "t (s)", "m/s")
-    corner_legend(ax)
+    # =============================== 图6：机体速度 3 分量对比 ===============================
+    fig, axs = plt.subplots(3, 1, figsize=(13, 10), sharex=True)
+    spec = [
+        (vx_a, vx_c, "vx (m/s)", "图6a  前进速度 vx：下发 vs 实际"),
+        (vy_a, vy_c, "vy (m/s)", "图6b  横移速度 vy：下发 vs 实际"),
+        (wz_a, wz_c, "wz (rad/s)", "图6c  转向角速度 wz：下发 vs 实际"),
+    ]
+    for k, (ya, yc, ylab, ttl) in enumerate(spec):
+        ax2 = axs[k]
+        for (qs, qe, _x, _y) in stalls:
+            ax2.axvspan(qs, qe, color="#ffcdd2", alpha=0.45, lw=0)
+        ax2.axhline(0.0, color="#9e9e9e", lw=0.8, ls="-")
+        ax2.plot(T, ya, "-", lw=LW_THICK + 1.0, color=C_ACTUAL, alpha=0.55,
+                 label="实际（odom）", zorder=3)
+        ax2.plot(T, yc, "-", lw=LW_MID, color=C_CMD, label="下发（cmd_vel）",
+                 zorder=4, path_effects=halo(LW_MID))
+        style_ax(ax2, ttl, "t (s)" if k == len(spec) - 1 else None, ylab)
+        if k == 0:
+            corner_legend(ax2)
     save(fig, os.path.join(figs, "6_速度对比.png"))
 
     # =============================== 图4：泳道 ===============================
@@ -566,13 +605,15 @@ def main():
          f"- bag：`{a.bag}`",
          f"- 时长：**{dur:.1f} s**　里程：**{dist:.1f} m**　平均速度：**{dist/max(dur,1e-6):.2f} m/s**",
          f"- 采样：odom {len(od)}，cmd {len(cmd)}，local_path {len(lp)}，"
-         f"global_path {len(data['global_path'])}，bspline {len(bsp)}，tf {len(data['tf'])}", "",
+         f"global_path {len(data['global_path'])}，bspline {len(data['bspline'])}，tf {len(data['tf'])}", "",
          "## 关键指标", "", "| 指标 | 值 |", "|---|---|",
          f"| 卡住段数 | {len(stalls)} |",
          f"| 卡住总时长 | {stall_secs:.1f} s（占 {100*stall_secs/max(dur,1e-6):.1f}%） |",
          f"| 冻结(frozen)总时长 | {frozen_secs:.1f} s |",
-         f"| 计划 vs 实测速度 平均差 | {np.nanmean(np.abs(v_plan-v_odom)):.3f} m/s |",
-         f"| 指令 vs 实测速度 平均差 | {float(np.mean(np.abs(v_cmd-v_odom))):.3f} m/s |",
+         f"| vx 下发 vs 实际 平均差 | {float(np.mean(np.abs(vx_c-vx_a))):.3f} m/s |",
+         f"| vy 下发 vs 实际 平均差 | {float(np.mean(np.abs(vy_c-vy_a))):.3f} m/s |",
+         f"| wz 下发 vs 实际 平均差 | {float(np.mean(np.abs(wz_c-wz_a))):.3f} rad/s |",
+         f"| 合速度 下发 vs 实际 平均差 | {float(np.mean(np.abs(v_cmd-v_odom))):.3f} m/s |",
          f"| 横向跟踪误差 均值/最大 | {np.nanmean(err):.3f} / {np.nanmax(err):.3f} m |",
          f"| 定位 state≠3 采样数 | {bad_state} / {len(st_v)} |"]
     if dev_v:

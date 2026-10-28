@@ -90,8 +90,8 @@ python3 analyze_run.py ~/bags/stair_corner_20261027_153000
 | `figs/fig1b_localization_dev.png` | **定位偏差 + TF 修正量**：紫实线=两源偏差、青虚线=map→world 平移 |
 | `figs/fig1c_localization_state.png` | **定位状态** `/loc/status.state`（3=跟踪中），掉档一眼可见 |
 | `figs/fig1d_localization_rmse.png` | **定位 rmse**（激光帧与先验地图的匹配残差） |
-| `figs/fig2_planning.png` | **规划测试**：全局轨迹（紫虚线，已变到 WORLD）/ 局部轨迹（绿细线）/ 实际轨迹（蓝粗线）+ 卡住点 |
-| `figs/fig3_speed.png` | **速度跟踪**：计划速度（绿虚线）/ 指令速度（红实线）/ 实测速度（蓝粗实线）+ 卡住底纹 |
+| `figs/fig2_planning.png`(实际文件名 `5_轨迹对比.png`) | **规划测试**：俯视（全局=紫虚线/局部=绿线/实际=蓝带）+ **高度 z 随时间**（实际/局部/全局三条） |
+| `figs/fig3_speed.png`(实际文件名 `6_速度对比.png`) | **机体速度三分量**：vx / vy / wz 各自一个子图，比较**下发(cmd_vel)** vs **实际(odom)** |
 | `figs/fig4_lanes.png` | **事件泳道**：冻结 / 卡住 / `--event` 与 `AUTO:*` 标注 |
 
 > **配色约定**（贯穿所有图）：蓝=实际/实测、橙=地图定位、紫=全局轨迹/偏差、绿=局部轨迹/计划速度、
