@@ -15,6 +15,7 @@
 #   bash record_run.sh <标签> --auto-events       # 自动标注"卡住/恢复"（无需手按）
 #   bash record_run.sh --check                    # 只做"录前自检"，不录
 #   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
+#   bash record_run.sh --stop                     # 优雅停止正在进行的录制
 #
 # 可用环境变量覆盖默认路径：
 #   NAV_WS=$HOME/nav_ws
@@ -208,7 +209,8 @@ while [ $# -gt 0 ]; do
     --storage)     STORAGE="${2:-sqlite3}"; shift ;;
     --no-compress) COMPRESS=0 ;;
     --auto-events) AUTO_EVENTS=1 ;;
-    -h|--help)     sed -n '2,24p' "$0"; exit 0 ;;
+    --stop)        MODE="stop" ;;
+    -h|--help)     sed -n '2,25p' "$0"; exit 0 ;;
     -*)            echo "未知参数：$1"; exit 1 ;;
     *)             LABEL="$1" ;;
   esac
@@ -218,6 +220,15 @@ done
 case "$MODE" in
   check)
     source_env; write_qos; precheck; exit 0 ;;
+  stop)
+    # 优雅停止：发 SIGINT 让脚本走完"finalize + 后处理"；排除自己
+    n=0
+    for p in $(pgrep -f "record_run.sh"); do
+      [ "$p" = "$$" ] && continue
+      kill -INT "$p" 2>/dev/null && n=$((n + 1))
+    done
+    log "已向 $n 个录制进程发送停止信号（等它 finalize 完再归档）"
+    exit 0 ;;
   event)
     if [ -z "$EVENT_MSG" ]; then echo "用法：bash record_run.sh --event \"事件描述\""; exit 1; fi
     source_env
@@ -285,7 +296,10 @@ if [ -n "$DURATION" ]; then
   TIMER=$!
 fi
 
-wait "$BAGPID"; RC=$?
+# 注意：收到信号时 bash 的 wait 会被打断并返回（130），而 rosbag2 可能还在给
+# 几十 GB 的包做 zstd 收尾 —— 必须循环等到它真的退出，否则后处理会读到没写完的包。
+RC=0
+while kill -0 "$BAGPID" 2>/dev/null; do wait "$BAGPID"; RC=$?; done
 [ -n "${TIMER:-}" ] && kill "$TIMER" 2>/dev/null
 if [ -n "${AUTOPID:-}" ]; then
   kill -INT "$AUTOPID" 2>/dev/null; wait "$AUTOPID" 2>/dev/null
