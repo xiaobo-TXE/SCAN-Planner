@@ -84,6 +84,31 @@ def halo(lw):
     return [pe.Stroke(linewidth=lw + 2.5, foreground="white", alpha=0.9), pe.Normal()]
 
 
+def corner_legend(ax, fontsize=8.5):
+    """把图例缩小并放到四个角里"最空"的那个，尽量不压曲线"""
+    x0, x1 = ax.get_xlim()
+    y0, y1 = ax.get_ylim()
+    W, H = (x1 - x0), (y1 - y0)
+    zones = {
+        "upper left":  (x0, x0 + 0.42 * W, y0 + 0.66 * H, y1),
+        "upper right": (x0 + 0.58 * W, x1, y0 + 0.66 * H, y1),
+        "lower left":  (x0, x0 + 0.42 * W, y0, y0 + 0.34 * H),
+        "lower right": (x0 + 0.58 * W, x1, y0, y0 + 0.34 * H),
+    }
+    counts = {}
+    for name, (a, b, c, d) in zones.items():
+        cnt = 0
+        for ln in ax.get_lines():
+            xd, yd = ln.get_data()
+            if len(xd) == 0:
+                continue
+            cnt += int(np.sum((xd >= a) & (xd <= b) & (yd >= c) & (yd <= d)))
+        counts[name] = cnt
+    best = min(counts, key=counts.get)
+    ax.legend(loc=best, fontsize=fontsize, framealpha=0.92, edgecolor="#bbbbbb",
+              borderpad=0.3, labelspacing=0.25, handlelength=1.3, handletextpad=0.45)
+
+
 def save(fig, path):
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
@@ -411,7 +436,7 @@ def main():
     ax.plot(P[-1, 0], P[-1, 1], "s", ms=12, color="k", label="终点", zorder=6)
     ax.set_aspect("equal")
     style_ax(ax, "图1  定位轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
-    ax.legend(fontsize=11, framealpha=0.9, loc="best")
+    corner_legend(ax)
     save(fig, os.path.join(figs, "1_定位轨迹.png"))
 
     # =============================== 图1b：偏差 / TF 修正量 ===============================
@@ -419,7 +444,7 @@ def main():
     if dev_t:
         ax.plot(dev_t, dev_v, "-", lw=LW_MID, color=C_DEV, label="两定位源偏差（TF 对齐后）")
         ax.plot(dev_t, corr_v, "--", lw=LW_MID, color=C_CORR, label="TF 修正量（map→world 平移）")
-        ax.legend(fontsize=11, framealpha=0.9, loc="center right")
+        corner_legend(ax)
     else:
         ax.text(0.5, 0.5, "缺少 /tf 或 /loc/robo/odom，无法做对齐对比",
                 ha="center", va="center", transform=ax.transAxes, fontsize=12)
@@ -480,7 +505,7 @@ def main():
     ax.plot(P[-1, 0], P[-1, 1], "s", ms=13, color="k", label="终点", zorder=7)
     ax.set_aspect("equal")
     style_ax(ax, "图5  全局 / 局部 / 实际 轨迹对比（统一到 WORLD 系）", "x (m)", "y (m)")
-    ax.legend(fontsize=11, framealpha=0.9, loc="best")
+    corner_legend(ax)
     save(fig, os.path.join(figs, "5_轨迹对比.png"))
 
     # =============================== 图3：速度 ===============================
@@ -496,7 +521,7 @@ def main():
             zorder=5, path_effects=halo(LW_MID))
     ax.set_ylim(bottom=0)
     style_ax(ax, "图6  速度跟踪：计划 / 指令 / 实测", "t (s)", "m/s")
-    ax.legend(fontsize=11, framealpha=0.9, loc="upper right")
+    corner_legend(ax)
     save(fig, os.path.join(figs, "6_速度对比.png"))
 
     # =============================== 图4：泳道 ===============================
