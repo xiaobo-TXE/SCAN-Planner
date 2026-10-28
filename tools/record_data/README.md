@@ -86,10 +86,17 @@ python3 analyze_run.py ~/bags/stair_corner_20261027_153000
 | 文件 | 内容 |
 |---|---|
 | `report.md` | 时长/里程/卡住段/速度差/跟踪误差/定位偏差 + 自动结论 |
-| `figs/fig1_localization.png` | **定位测试**：WORLD vs MAP 两条轨迹（MAP 经 `/tf` 的 map→world 变到 WORLD）+ 偏差与 TF 修正量随时间 + state/rmse |
-| `figs/fig2_planning.png` | **规划测试**：全局轨迹（已按 TF 变到 WORLD）/ 局部轨迹 / 实际轨迹 三合一 + 卡住点 |
-| `figs/fig3_speed.png` | **速度跟踪**：计划速度（bspline 求导）/ 指令速度（cmd_vel）/ 实测速度（odom 位置差分） |
+| `figs/fig1a_localization_traj.png` | **定位轨迹**：WORLD vs MAP（MAP 经 `/tf` 的 map→world 变到 WORLD）；蓝实线 vs 橙虚线 |
+| `figs/fig1b_localization_dev.png` | **定位偏差 + TF 修正量**：紫实线=两源偏差、青虚线=map→world 平移 |
+| `figs/fig1c_localization_state.png` | **定位状态** `/loc/status.state`（3=跟踪中），掉档一眼可见 |
+| `figs/fig1d_localization_rmse.png` | **定位 rmse**（激光帧与先验地图的匹配残差） |
+| `figs/fig2_planning.png` | **规划测试**：全局轨迹（紫虚线，已变到 WORLD）/ 局部轨迹（绿细线）/ 实际轨迹（蓝粗线）+ 卡住点 |
+| `figs/fig3_speed.png` | **速度跟踪**：计划速度（绿虚线）/ 指令速度（红实线）/ 实测速度（蓝粗实线）+ 卡住底纹 |
 | `figs/fig4_lanes.png` | **事件泳道**：冻结 / 卡住 / `--event` 与 `AUTO:*` 标注 |
+
+> **配色约定**（贯穿所有图）：蓝=实际/实测、橙=地图定位、紫=全局轨迹/偏差、绿=局部轨迹/计划速度、
+> 红=指令速度/卡住、青=TF 修正量/定位状态。线型也区分（实线=实际量，虚线=参考/派生量），
+> 两条线重合时也能分辨。
 
 > **坐标系提醒**（真机实测）：WORLD 系 = `/lio/robo/odom` + `/local_path` + `/planning/bspline`；
 > MAP 系 = `/loc/robo/odom` + `/global_path`。两者差 ~4.5 m（含约 90° 旋转），**必须录 `/tf`**，
