@@ -26,12 +26,12 @@ bash record_run.sh stair_corner
 # 录 120s 自动停
 bash record_run.sh stair_corner --duration 120
 
-# 点云短包（默认 30s，mcap）
+# 点云短包（默认 30s）
 bash record_run.sh corner_points --points --duration 20
 
-# 不压缩 / 换存储
-bash record_run.sh run1 --no-compress
-bash record_run.sh run1 --storage mcap
+# 精简档（去掉两朵大点云，约省 37%）/ 开启 zstd 压缩（省空间，但分析前需解压）
+bash record_run.sh run1 --light
+bash record_run.sh run1 --compress
 
 # 运行中标注事件（另开终端）
 bash record_run.sh --event "点目标A"
@@ -44,6 +44,13 @@ bash record_run.sh stair_corner --auto-events
 / `AUTO_CMD_TOPIC`（默认 `/cmd_vel`）/ `AUTO_ODOM_TOPIC`（默认 `/loc/robo/odom`）。
 
 ## 行为
+
+> **真机实测带宽**（A2，全量档）：`/grid_map/occupancy_inflate` **40.9 MB/s**、`/lio/cloud_world` 14.7、
+> `/grid_map/depth_cloud` 13.1、`/grid_map/occupancy` 5.7 —— 合计约 **75 MB/s（≈4.5 GB/min）**。
+> 所以：**默认不压缩**（可直接读、且能按话题做快速局部读）；`--compress` 能把 15 分钟从 61 GB 压到 ~18 GB，
+> 但 **`rosbag2_py` / `analyze_run.py` 读不了 file 压缩包**，分析前要：
+> `zstd -d -f x.db3.zstd -o x.db3`、`rm x.db3.zstd`、并把 `metadata.yaml` 的 `compression_mode: FILE` 改成 `NONE`。
+> `--light` 去掉 `/lio/cloud_world` + `/grid_map/depth_cloud`，约省 37% 带宽。
 
 - 自动 `source` ROS 与两个工作空间；自动生成/沿用 `$BAG_ROOT/qos_overrides.yaml`；
 - 录制用 `--qos-profile-overrides-path` 保证**保留型（transient_local）**与

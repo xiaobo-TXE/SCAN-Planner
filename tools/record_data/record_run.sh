@@ -10,8 +10,8 @@
 #   bash record_run.sh <标签> --duration 120      # 录 120s 后自动停
 #   bash record_run.sh <标签> --points            # 只录"点云短包"（默认 30s）
 #   bash record_run.sh <标签> --points --duration 20
-#   bash record_run.sh <标签> --no-compress       # 不压缩（默认 zstd）
-#   bash record_run.sh <标签> --storage mcap      # 换 mcap 存储（默认 sqlite3）
+#   bash record_run.sh <标签> --compress          # 开启 zstd file 压缩（省空间；分析前需先解压）
+#   bash record_run.sh <标签> --light             # 精简档：去掉两朵大点云（约省 37% 带宽）
 #   bash record_run.sh <标签> --auto-events       # 自动标注"卡住/恢复"（无需手按）
 #   bash record_run.sh --check                    # 只做"录前自检"，不录
 #   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
@@ -47,8 +47,8 @@ DIAG_TOPICS=(
   /lio/robo/odom /lio/imu/odom /lio/odom /lio/path
   # --- 建图 ---
   /lio/cloud_world
-  /grid_map/occupancy /grid_map/occupancy_inflate /grid_map/unknown
-  /grid_map/sliding_map_bbox /grid_map/depth_cloud /grid_map/sensor_pose_extrinsic
+  /grid_map/occupancy /grid_map/occupancy_inflate
+  /grid_map/sliding_map_bbox /grid_map/depth_cloud
   # --- 全局规划 ---
   /global_path /global_planner/raw_map /goal_3d /goal_point
   # --- 局部规划 ---
@@ -66,6 +66,16 @@ POINTS_TOPICS=(
   /grid_map/occupancy /grid_map/occupancy_inflate
   /self_inflation
   /test_event
+)
+
+# --light：去掉两朵"大而不关键"的云（/lio/cloud_world 14.7 MB/s、/grid_map/depth_cloud 13 MB/s，约省 37% 带宽）
+LIGHT_TOPICS=(
+  /tf /tf_static /rosout
+  /loc/robo/odom /loc/status /loc/map /loc/keyframes /loc/submap /lio/robo/odom
+  /grid_map/occupancy /grid_map/occupancy_inflate /grid_map/sliding_map_bbox
+  /global_path /global_planner/raw_map /goal_3d /goal_point
+  /planning/bspline /local_path /planning/data_display /self_inflation
+  /planning/go2_execution_frozen /cmd_vel /motion_enabled /test_event
 )
 
 # ---------------------------------------------------------------------------
@@ -199,7 +209,7 @@ META
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
-MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=1; POINTS=0; EVENT_MSG=""; AUTO_EVENTS=0
+MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; EVENT_MSG=""; AUTO_EVENTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)       MODE="check" ;;
@@ -208,6 +218,8 @@ while [ $# -gt 0 ]; do
     --duration)    DURATION="${2:-}"; shift ;;
     --storage)     STORAGE="${2:-sqlite3}"; shift ;;
     --no-compress) COMPRESS=0 ;;
+    --compress)    COMPRESS=1 ;;
+    --light)       LIGHT=1 ;;
     --auto-events) AUTO_EVENTS=1 ;;
     --stop)        MODE="stop" ;;
     -h|--help)     sed -n '2,25p' "$0"; exit 0 ;;
@@ -248,8 +260,11 @@ write_qos
 
 if [ "$POINTS" = 1 ]; then
   TOPICS=("${POINTS_TOPICS[@]}")
-  STORAGE="mcap"; [ -n "$DURATION" ] || DURATION=30
+  [ -n "$DURATION" ] || DURATION=30
   LABEL_NOTE="点云短包"
+elif [ "$LIGHT" = 1 ]; then
+  TOPICS=("${LIGHT_TOPICS[@]}")
+  LABEL_NOTE="精简包"
 else
   TOPICS=("${DIAG_TOPICS[@]}")
   LABEL_NOTE="诊断包"
@@ -264,7 +279,10 @@ REC_ARGS=(--qos-profile-overrides-path "$QOS_FILE" --storage "$STORAGE")
 [ "$COMPRESS" = 1 ] && REC_ARGS+=(--compression-mode file --compression-format zstd)
 
 log "开始录制 → $BAG_PATH"
-log "话题数：${#TOPICS[@]}  storage=$STORAGE  压缩=$COMPRESS  时长=${DURATION:-手动(Ctrl-C)}"
+log "话题数：${#TOPICS[@]}  storage=$STORAGE  zstd压缩=$COMPRESS  时长=${DURATION:-手动(Ctrl-C)}"
+if [ "$COMPRESS" = 1 ]; then
+  log "提示：已开 file 压缩 —— rosbag2_py 读不了，分析前需先解压（zstd -d + 改 metadata 的 compression_mode）"
+fi
 if [ "$AUTO_EVENTS" = 1 ]; then
   log "自动事件标注：开（cmd=$AUTO_CMD_TOPIC odom=$AUTO_ODOM_TOPIC）"
 else

@@ -3,6 +3,8 @@
 # bag_tools.py —— 读 rosbag2 + B 样条求值的公共小工具
 #   被 analyze_run.py 与 export_tum.py 共用，避免重复实现。
 # ============================================================================
+import glob
+import os
 import sys
 
 import numpy as np
@@ -10,6 +12,15 @@ import numpy as np
 
 def open_reader(bag):
     """返回 (reader, deserialize_fn, backend)。优先 rosbag2_py（需 source ROS），退化到 rosbags。"""
+    # rosbag2 的 file 压缩包（只剩 *.db3.zstd）rosbag2_py 直接读不了，给出解压办法
+    if isinstance(bag, str) and not glob.glob(os.path.join(bag, "*.db3")):
+        zs = glob.glob(os.path.join(bag, "*.db3.zstd"))
+        if zs:
+            print("[提示] 这是 rosbag2 file 压缩的包（*.db3.zstd），rosbag2_py 读不了。先解压：")
+            for z in zs:
+                print(f"    zstd -d -f '{z}' -o '{z[:-5]}' && rm '{z}'")
+            print("    并把 metadata.yaml 里的 compression_mode: FILE 改成 NONE")
+            sys.exit(3)
     try:
         import rosbag2_py
         from rclpy.serialization import deserialize_message
