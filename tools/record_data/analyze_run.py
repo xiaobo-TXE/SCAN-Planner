@@ -461,13 +461,18 @@ def main():
                 path_effects=halo(LW_MID) if is_last else None)
     if ng:
         ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹（最后一条，其余淡显）")
-    # 局部轨迹：只画最近 8 条（画 40 条会糊成一团）
-    nlp = min(8, len(data["local_path"]))
-    for (t, pts, _f) in data["local_path"][-nlp:]:
-        ax.plot(pts[:, 0], pts[:, 1], "-", lw=LW_THIN + 0.2, color=C_LOCAL, alpha=0.95, zorder=6,
+    # 局部轨迹：全部淡显（覆盖整段路线，看整体意图）+ 等间隔抽样亮显（看细节）
+    nlp = len(data["local_path"])
+    for (_t, pts, _f) in data["local_path"]:
+        ax.plot(pts[:, 0], pts[:, 1], "-", lw=1.15, color=C_LOCAL, alpha=0.28, zorder=3)
+    pick = list(range(0, nlp, max(1, nlp // 12)))[:12] if nlp else []
+    for k in pick:
+        _t, pts, _f = data["local_path"][k]
+        ax.plot(pts[:, 0], pts[:, 1], "-", lw=LW_THIN + 0.3, color=C_LOCAL, alpha=0.95, zorder=6,
                 path_effects=halo(LW_THIN))
     if nlp:
-        ax.plot([], [], "-", lw=LW_THIN + 0.2, color=C_LOCAL, label=f"局部轨迹（最近 {nlp} 条）")
+        ax.plot([], [], "-", lw=1.15, color=C_LOCAL, alpha=0.28, label=f"局部轨迹（全部 {nlp} 条，淡显）")
+        ax.plot([], [], "-", lw=LW_THIN + 0.3, color=C_LOCAL, label=f"局部轨迹（等间隔抽样 {len(pick)} 条）")
     if stalls:
         ax.plot([s[2] for s in stalls], [s[3] for s in stalls], "X", ms=11, mew=2.5,
                 color=C_STALL, label="卡住点", zorder=6)
