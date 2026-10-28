@@ -13,6 +13,7 @@
 #   bash record_run.sh <标签> --compress          # 开启 zstd file 压缩（省空间；分析前需先解压）
 #   bash record_run.sh <标签> --light             # 精简档：去掉两朵大点云（约省 37% 带宽）
 #   bash record_run.sh <标签> --slim              # 只录 定位/全局/局部/速度（约 0.1-0.2 MB/s）
+#   bash record_run.sh <标签> --tracks            # 轨迹+滑动地图专用档（默认 120s 自动停，≈47 MB/s）
 #   bash record_run.sh <标签> --auto-events       # 自动标注"卡住/恢复"（无需手按）
 #   bash record_run.sh --check                    # 只做"录前自检"，不录
 #   bash record_run.sh --event "goal A"           # 往 /test_event 发一条事件标注
@@ -94,6 +95,33 @@ SLIM_TOPICS=(
   /tf /tf_static
   # 诊断 / 事件
   /planning/go2_execution_frozen /test_event
+)
+
+# --tracks：只看"轨迹 + 滑动地图"的专用档。用途=回放时一眼看清
+#   "机器人从起点到拐角怎么走的、拐角处滑动地图判成了什么"。
+#   对应关系（详见同目录《轨迹与滑动地图回放手册.md》）：
+#     全局轨迹   /global_path          （MAP 系）
+#     局部轨迹   /local_path           （WORLD 系）
+#     实时轨迹   /lio/robo/odom        （WORLD 系，实际走过的）
+#     滑动地图   /grid_map/occupancy + /grid_map/occupancy_inflate + /grid_map/sliding_map_bbox
+#   注意带宽：滑动地图是本系统里最贵的两朵 —— 实测 occupancy_inflate 40.9 MB/s、
+#   occupancy 5.7 MB/s，合计 ≈47 MB/s（≈2.8 GB/min）。所以本档**默认 120s 自动停**，
+#   避免忘记 Ctrl-C 把盘写满；手动停请用 `--duration 0`。
+TRACKS_TOPICS=(
+  # 坐标系（缺了什么都对不上；MAP 系靠它对齐到 WORLD 系）
+  /tf /tf_static
+  # 全局轨迹（MAP 系，保留型）
+  /global_path
+  # 局部轨迹（WORLD 系）+ 原始 B 样条消息（RViz 画不了，留给离线分析）
+  /local_path /planning/bspline
+  # 实时轨迹 / 位姿（两个定位源都录，回放里可对比）
+  /lio/robo/odom /loc/robo/odom /loc/status /lio/path
+  # 滑动地图（贵！见上面的带宽说明）
+  /grid_map/occupancy /grid_map/occupancy_inflate /grid_map/sliding_map_bbox
+  # 机身两圆柱（碰撞模型，保留型）
+  /self_inflation
+  # 目标点 / 速度 / 事件（都很小）
+  /goal_3d /goal_point /cmd_vel /motion_enabled /test_event
 )
 
 # ---------------------------------------------------------------------------
@@ -227,7 +255,7 @@ META
 # ---------------------------------------------------------------------------
 # 参数解析
 # ---------------------------------------------------------------------------
-MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; SLIM=0; EVENT_MSG=""; AUTO_EVENTS=0
+MODE="record"; LABEL=""; DURATION=""; STORAGE="sqlite3"; COMPRESS=0; POINTS=0; LIGHT=0; SLIM=0; TRACKS=0; EVENT_MSG=""; AUTO_EVENTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --check)       MODE="check" ;;
@@ -239,9 +267,10 @@ while [ $# -gt 0 ]; do
     --compress)    COMPRESS=1 ;;
     --light)       LIGHT=1 ;;
     --slim)        SLIM=1 ;;
+    --tracks)      TRACKS=1 ;;
     --auto-events) AUTO_EVENTS=1 ;;
     --stop)        MODE="stop" ;;
-    -h|--help)     sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help)     sed -n '2,27p' "$0"; exit 0 ;;
     -*)            echo "未知参数：$1"; exit 1 ;;
     *)             LABEL="$1" ;;
   esac
@@ -269,7 +298,7 @@ esac
 
 # 录制模式：先校验必须参数，再动目录/环境（避免报用法时就把 ~/bags 建出来）
 [ -n "$LABEL" ] || {
-  echo "用法：bash record_run.sh <标签> [--duration N] [--points] [--no-compress] [--storage mcap]"
+  echo "用法：bash record_run.sh <标签> [--duration N] [--tracks] [--points] [--slim] [--light] [--no-compress] [--storage mcap]"
   echo "      bash record_run.sh --check | --event \"事件描述\""
   exit 1
 }
@@ -281,6 +310,13 @@ if [ "$POINTS" = 1 ]; then
   TOPICS=("${POINTS_TOPICS[@]}")
   [ -n "$DURATION" ] || DURATION=30
   LABEL_NOTE="点云短包"
+elif [ "$TRACKS" = 1 ]; then
+  TOPICS=("${TRACKS_TOPICS[@]}")
+  # 这个档只有滑动地图贵（≈47 MB/s），忘了停很容易写满盘 → 默认 120s 自动停。
+  # 想手动停就写 `--duration 0`。
+  [ -n "$DURATION" ] || DURATION=120
+  if [ "$DURATION" = "0" ]; then DURATION=""; fi
+  LABEL_NOTE="轨迹+滑动地图档"
 elif [ "$SLIM" = 1 ]; then
   TOPICS=("${SLIM_TOPICS[@]}")
   LABEL_NOTE="精简档(定位/规划/速度)"

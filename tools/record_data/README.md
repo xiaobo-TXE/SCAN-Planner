@@ -32,6 +32,7 @@ bash record_run.sh corner_points --points --duration 20
 # 精简档（去掉两朵大点云，约省 37%）/ 只录定位+规划+速度 / 开启 zstd 压缩
 bash record_run.sh run1 --light
 bash record_run.sh run1 --slim        # 只录 定位/全局/局部/速度，约 0.1-0.2 MB/s
+bash record_run.sh corner --tracks    # 轨迹+滑动地图档（默认 120s 自动停，≈47 MB/s）
 bash record_run.sh run1 --compress
 
 # 运行中标注事件（另开终端）
@@ -141,6 +142,10 @@ virtualenv ~/venvs/evo && ~/venvs/evo/bin/pip install evo
 并生成 `ape_raw/map.png`、`rpe_raw/map.png`。
 
 ## 交互式回放
+
+> **只想看"轨迹 + 滑动地图"**（全局轨迹 / 局部轨迹 / 实时轨迹 / 滑动地图）：
+> 用 `--tracks` 档录，回放步骤见 **《轨迹与滑动地图回放手册.md》**。
+> 下面是分场景的通用说明。
 
 ### 方案 A：rviz2（零安装，本机已装）
 ```bash
