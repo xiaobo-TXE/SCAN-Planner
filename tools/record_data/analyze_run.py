@@ -499,29 +499,27 @@ def main():
     fig, (ax, axz) = plt.subplots(2, 1, figsize=(12, 12),
                                   gridspec_kw={"height_ratios": [2.1, 1.0]})
     # ---------- 上：俯视 x-y ----------
+    # 实际轨迹：半透明宽带打底（最底层）
     ax.plot(P[:, 0], P[:, 1], "-", lw=LW_THICK + 1.6, color=C_ACTUAL, alpha=0.40,
             label="实际轨迹(odom带)", zorder=1)
+    # 局部轨迹：全部亮绿显示（不抽样），画在全局下面
+    nlp = len(data["local_path"])
+    for (_t, pts, _f) in data["local_path"]:
+        ax.plot(pts[:, 0], pts[:, 1], "-", lw=1.2, color=C_LOCAL, alpha=0.70, zorder=4)
+    if nlp:
+        ax.plot([], [], "-", lw=1.2, color=C_LOCAL, alpha=0.85, label=f"局部轨迹(全部 {nlp} 条)")
+    # 全局轨迹：全部画出来（都可见），最后一条稍加粗、带白描边
     ng = len(gp_world)
     for k, (_t, q, _f) in enumerate(gp_world):
         is_last = (k == ng - 1)
         ax.plot(q[:, 0], q[:, 1], "--",
-                lw=LW_MID if is_last else 1.0, color=C_GLOBAL,
-                alpha=0.95 if is_last else 0.18,
-                zorder=5 if is_last else 2,
+                lw=(LW_MID + 0.6) if is_last else LW_MID,
+                color=C_GLOBAL,
+                alpha=0.95 if is_last else 0.70,
+                zorder=7 if is_last else 5,
                 path_effects=halo(LW_MID) if is_last else None)
     if ng:
-        ax.plot([], [], "--", lw=LW_MID, color=C_GLOBAL, label="全局轨迹(末条)")
-    nlp = len(data["local_path"])
-    for (_t, pts, _f) in data["local_path"]:
-        ax.plot(pts[:, 0], pts[:, 1], "-", lw=1.15, color=C_LOCAL, alpha=0.28, zorder=3)
-    pick = list(range(0, nlp, max(1, nlp // 12)))[:12] if nlp else []
-    for k in pick:
-        _t, pts, _f = data["local_path"][k]
-        ax.plot(pts[:, 0], pts[:, 1], "-", lw=LW_THIN + 0.3, color=C_LOCAL, alpha=0.95, zorder=6,
-                path_effects=halo(LW_THIN))
-    if nlp:
-        ax.plot([], [], "-", lw=1.15, color=C_LOCAL, alpha=0.28, label=f"局部(全{nlp}条淡)")
-        ax.plot([], [], "-", lw=LW_THIN + 0.3, color=C_LOCAL, label=f"局部(抽样{len(pick)})")
+        ax.plot([], [], "--", lw=LW_MID + 0.6, color=C_GLOBAL, label=f"全局轨迹(全部 {ng} 条，末条加粗)")
     if stalls:
         ax.plot([q[2] for q in stalls], [q[3] for q in stalls], "X", ms=11, mew=2.5,
                 color=C_STALL, label="卡住点", zorder=7)
