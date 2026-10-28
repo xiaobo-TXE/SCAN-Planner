@@ -50,7 +50,7 @@ from bag_tools import bspline_eval, open_reader, resolve_type, validate_bspline 
 
 
 # ---------------------------------------------------------------------------
-def collect(bag):
+def collect(bag, odom_topic=None):
     reader, dm, backend = open_reader(bag)
     type_map = {t.name: t.type for t in reader.get_all_topics_and_types()} \
         if backend == "rosbag2_py" else {}
@@ -58,7 +58,9 @@ def collect(bag):
     data = {k: [] for k in ("odom", "cmd", "local_path", "global_path", "bspline",
                             "frozen", "events", "status", "occ", "inf")}
     names = {
-        "odom": ["/loc/robo/odom", "/lio/robo/odom", "/loc/odom"],
+        # 规划器/控制器用的是 body_pose -> /lio/robo/odom（world 系）；/loc/robo/odom 是
+        # 地图定位输出（另一套坐标系，与 local_path/bspline 差几米），不能混用。
+        "odom": [odom_topic] if odom_topic else ["/lio/robo/odom", "/loc/robo/odom", "/loc/odom"],
         "cmd": ["/cmd_vel", "/nav_cmd"],
         "local_path": ["/local_path"], "global_path": ["/global_path"],
         "bspline": ["/planning/bspline"], "frozen": ["/planning/go2_execution_frozen"],
@@ -161,6 +163,9 @@ def main():
     ap.add_argument("--with-clouds", action="store_true", help="额外算 RAW/INFLATE 最近障碍距离（慢）")
     ap.add_argument("--max-cloud-frames", type=int, default=150)
     ap.add_argument("--cyl-offset", type=float, default=0.205, help="机身两圆柱中心偏移(m)")
+    ap.add_argument("--odom-topic", default=None,
+                    help="指定里程计话题（默认 /lio/robo/odom —— 规划器/控制器的 world 系；"
+                         "要对比地图定位可传 /loc/robo/odom）")
     a = ap.parse_args()
     font = setup_font()
     if font is None:
@@ -173,7 +178,7 @@ def main():
     print(f"[i] 读取 {a.bag}")
     if not validate_bspline():
         print("[警告] B 样条求值自检未通过")
-    data, pick, type_map = collect(a.bag)
+    data, pick, type_map = collect(a.bag, a.odom_topic)
     if not data["odom"]:
         print("[错误] 没读到里程计（/loc/robo/odom 或 /lio/robo/odom）。话题清单：")
         for k, v in sorted(type_map.items()):
