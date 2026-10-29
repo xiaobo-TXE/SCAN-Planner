@@ -127,17 +127,58 @@ ros2 launch scan_planner run.launch.py robot:=go2w
 ros2 launch scan_planner run.launch.py robot:=none is_real_world:=false navi_mode:=1
 ```
 
-当前仓库自带三份档案：
+当前仓库自带三份档案。碰撞几何**三机型统一公式**（两圆并集 == 站立投影矩形，判据 `offset ≤ radius`）：
 
-| 档案 | 依据 | 主要内容 |
-|---|---|---|
-| `a2.yaml` | 实机调试实测 | 机器人尺寸、速度上限、局部地图尺寸、真机话题名、初始位置 |
-| `go2.yaml` | [Go2 官方规格](https://www.unitree.com/go2)（站立 70×31×40 cm，约 15 kg，0~2.5/3.5/3.7 m/s） | 圆柱半径/偏移按车体尺寸换算、站立高度、速度上限 |
-| `go2w.yaml` | [Go2-W 官方规格](https://www.unitree.com/go2-w)（站立 70×43×50 cm，约 18 kg，0~2.5 m/s） | 同上（车体更宽更高，半径更大、偏移更小） |
+```
+offset = L/4
+radius = hypot(L/4, W/2)        # 不加额外余量
+```
+
+| 档案 | 官方站立 L×W×H | offset / radius | z_up / z_down | body_height |
+|---|---|---|---|---|
+| `a2.yaml` | 0.82 × 0.44 × 0.57 m（最大台阶 0.30） | 0.205 / **0.301** | **0.16 / 0.24** | 0.0（实机实测口径） |
+| `go2.yaml` | 0.70 × 0.31 × 0.40 m | 0.175 / **0.234** | 沿用通用默认 | 0.40 |
+| `go2w.yaml` | 0.70 × 0.43 × 0.50 m | 0.175 / **0.277** | 沿用通用默认 | 0.50 |
+
+> `go2 / go2w` 的 `z_up / z_down` 需要「实测传感器离地高度 h_c + 官方台阶指标」才能定，
+> 在拿到之前沿用通用默认（0.1 / 0.4）。
 
 不显式指定 `robot:=` 时的规则：**真机（`is_real_world:=true`）默认用 `a2` 档案，仿真不叠加任何档案**。
 
-新增机型只需复制一份档案（例如 `go2.yaml`），改掉其中的数值与 `robot_topics`，启动时换成 `robot:=go2`，**不需要改代码**。档案名不存在时启动会直接报错并列出当前可用的档案。
+### 机型 × 需要配什么
+
+加新机型照着这张表配齐即可（不用改规划/控制代码）：
+
+| 要配的东西 | A2 | Go2 | Go2-W |
+|---|---|---|---|
+| 机型档案 | `config/robots/a2.yaml` | `go2.yaml` | `go2w.yaml` |
+| 描述包 | `a2_description` | `go2_description` | `go2w_description`（由 Go2 派生） |
+| 模型文件 | `urdf/a2.urdf` | `xacro/robot.xacro` | `xacro/robot.xacro` |
+| URDF 根节点 | `base` | `base` | `base` |
+| `_ROBOT_MODELS` 表项 | ✅ | ✅ | ✅ |
+| 腿部关节命名 | `FL/FR/RL/RR_hip/thigh/calf_joint` | 同左 | 同左 |
+| 碰撞 offset / radius | 0.205 / 0.301 | 0.175 / 0.234 | 0.175 / 0.277 |
+| 竖直膨胀 z_up / z_down | 0.16 / 0.24 | 通用默认 | 通用默认 |
+| 话题 `robot_topics` | 真机 super_lio 实测 | 待按实际驱动栈核对 | 待按实际驱动栈核对 |
+
+### 仿真自检清单（三机型各跑一次）
+
+| # | 检查项 | 怎么看 |
+|---|---|---|
+| ① | 模型显示 | RViz 里能看到该机型外形（`robot_description` 生成成功、无 xacro 报错） |
+| ② | TF `world -> base` | `ros2 run tf2_ros tf2_echo world base`（由 `go2_kinematic_sim` 广播；模型根节点必须是 `base`） |
+| ③ | 跟速度走 | `ros2 topic pub -r 10 /cmd_vel ...` 后 base 位置会动 |
+| ④ | 腿部动画 + 碰撞模型 | `/joint_states` 有 12 个关节（A2/Go2/Go2-W 命名一致）；`/self_inflation` 两个双圆柱可见 |
+
+> ⚠️ **仿真默认不叠加任何档案**，跑的是通用默认参数（radius 0.25 / offset 0.18 / z 0.1 / 0.4）。
+> 要在仿真里验证某机型的碰撞模型，必须显式带上档案：
+> ```bash
+> ros2 launch scan_planner run.launch.py is_real_world:=false navi_mode:=1 robot:=a2
+> ```
+> 注意：改变膨胀半径/偏移后需**重启节点**才生效（膨胀偏移表在 `initMap()` 里构建）。
+
+新增机型只需复制一份档案（例如 `go2.yaml`）与一个描述包，改掉数值、`robot_topics` 和
+`_ROBOT_MODELS` 一行，启动时换成 `robot:=go2`。档案名不存在时启动会直接报错并列出当前可用的档案。
 
 
 ROS 2 参数名称使用点号分隔，例如 `grid_map.resolution`。预设路径点是由 xyz 三元组组成的浮点数组：
