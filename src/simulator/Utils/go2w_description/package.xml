@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<!-- ============================================================================
+  包 go2w_description：Go2-W 的仿真模型
+  没有官方 URDF，由 go2_description 的 xacro 派生（改包名 + 按官方站立尺寸缩放）：
+    网格仍引用 package://go2_description/meshes/*（不复制 25 MB 网格）
+    关节名与关节轴和 Go2 完全一致 -> 步态节点 go2_gait_publisher 可直接驱动
+============================================================================ -->
+<package format="3">
+  <name>go2w_description</name>
+  <version>1.0.0</version>
+  <description>Go2-W description derived from go2_description (dimension-scaled approximation).</description>
+  <maintainer email="1028xiaobo@gmail.com">SCAN-Planner maintainers</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <exec_depend>go2_description</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

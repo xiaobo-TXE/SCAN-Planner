@@ -1,0 +1,46 @@
+<?xml version="1.0"?>
+<!-- ============================================================================
+文件：xacro/materials.xacro —— 颜色定义
+
+【说明】给模型里可能用到的颜色起名字（黑/蓝/绿/灰/银/橙/棕/红/白）。
+实际只有少数几个会被用到，其余是模板里自带的。
+============================================================================ -->
+<robot>
+
+    <material name="black">
+        <color rgba="0.0 0.0 0.0 1.0"/>
+    </material>
+
+    <material name="blue">
+        <color rgba="0.0 0.0 0.8 1.0"/>
+    </material>
+
+    <material name="green">
+        <color rgba="0.0 0.8 0.0 1.0"/>
+    </material>
+
+    <material name="grey">
+        <color rgba="0.2 0.2 0.2 0.0"/>
+    </material>
+
+    <material name="silver">
+        <color rgba="${233/255} ${233/255} ${216/255} 1.0"/>
+    </material>
+
+    <material name="orange">
+        <color rgba="${255/255} ${108/255} ${10/255} 1.0"/>
+    </material>
+
+    <material name="brown">
+        <color rgba="${222/255} ${207/255} ${195/255} 1.0"/>
+    </material>
+
+    <material name="red">
+        <color rgba="0.8 0.0 0.0 1.0"/>
+    </material>
+
+    <material name="white">
+        <color rgba="1.0 1.0 1.0 1.0"/>
+    </material>
+
+</robot>

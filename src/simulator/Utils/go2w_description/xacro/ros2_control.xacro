@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!-- ============================================================================
+文件：xacro/ros2_control.xacro —— ros2_control 的关节配置
+
+【这个文件定义了什么】
+声明 12 个关节（四条腿，每条腿有髋/大腿/小腿），每个关节：
+接受“位置”指令（范围 -3.14 ~ 3.14）
+反馈“位置 + 速度”状态
+并指定硬件插件为 gz_ros2_control（由 Gazebo 来执行）。
+============================================================================ -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- 单个关节的模板：位置指令 + 位置/速度状态 -->
+  <xacro:macro name="go2_control_joint" params="name initial:=0.0">
+    <joint name="${name}">
+      <command_interface name="position">
+        <param name="min">-3.14</param>
+        <param name="max">3.14</param>
+      </command_interface>
+      <state_interface name="position">
+        <param name="initial_value">${initial}</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- 【主宏】声明整个 Go2 的控制系统，并把 12 个关节逐一加进去 -->
+  <xacro:macro name="go2_ros2_control">
+    <ros2_control name="Go2GazeboSystem" type="system">
+      <hardware>
+        <!-- 硬件插件：关节由 Gazebo 物理引擎驱动 -->
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </hardware>
+      <!-- 12 个关节。大腿初始角 0.8、小腿 -1.5 弧度（站立姿态） -->
+      <xacro:go2_control_joint name="FL_hip_joint"/>
+      <xacro:go2_control_joint name="FL_thigh_joint" initial="0.8"/>
+      <xacro:go2_control_joint name="FL_calf_joint" initial="-1.5"/>
+      <xacro:go2_control_joint name="FR_hip_joint"/>
+      <xacro:go2_control_joint name="FR_thigh_joint" initial="0.8"/>
+      <xacro:go2_control_joint name="FR_calf_joint" initial="-1.5"/>
+      <xacro:go2_control_joint name="RL_hip_joint"/>
+      <xacro:go2_control_joint name="RL_thigh_joint" initial="0.8"/>
+      <xacro:go2_control_joint name="RL_calf_joint" initial="-1.5"/>
+      <xacro:go2_control_joint name="RR_hip_joint"/>
+      <xacro:go2_control_joint name="RR_thigh_joint" initial="0.8"/>
+      <xacro:go2_control_joint name="RR_calf_joint" initial="-1.5"/>
+    </ros2_control>
+  </xacro:macro>
+</robot>

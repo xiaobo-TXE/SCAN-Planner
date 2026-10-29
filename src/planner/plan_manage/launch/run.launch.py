@@ -58,11 +58,30 @@ def _profile_params(profile, node_name):
     return dict(profile.get(node_name, {}).get("ros__parameters", {}) or {})
 
 
+# 机型档案 -> 仿真里要显示的机器人模型：
+#   robot:=a2   → a2_description/urdf/a2.urdf（A2 实机 URDF，21 link / 20 joint，腿可动）
+#   robot:=go2  → go2_description/xacro/robot.xacro
+#   robot:=go2w → go2w_description/xacro/robot.xacro（由 Go2 派生，见该包 README）
+# 表里没有的（含仿真默认的 robot:=none）回退到 Go2，保持原有行为。
+_ROBOT_MODELS = {
+    "a2": ("a2_description", ("urdf", "a2.urdf"), []),
+    "go2": ("go2_description", ("xacro", "robot.xacro"), [" use_gazebo:=false"]),
+    "go2w": ("go2w_description", ("xacro", "robot.xacro"), [" use_gazebo:=false"]),
+}
+_DEFAULT_ROBOT_MODEL = _ROBOT_MODELS["go2"]
+
+
+# 按 robot 机型拼出 robot_description 的 xacro 命令行（纯 URDF 也能被 xacro 处理）。
+def _robot_description_command(robot):
+    package, parts, extra = _ROBOT_MODELS.get(robot, _DEFAULT_ROBOT_MODEL)
+    model = os.path.join(get_package_share_directory(package), *parts)
+    return ["xacro ", model] + extra
+
+
 # 真正干活的函数：在这里根据参数决定启动哪些节点、做哪些话题重映射。
 # 用 OpaqueFunction 包裹，是为了能在“运行时”拿到参数值再决定。
 def _setup(context):
     scan_share = get_package_share_directory("scan_planner")
-    go2_share = get_package_share_directory("go2_description")
     planner_yaml = os.path.join(scan_share, "config", "planner.yaml")
     controllers_yaml = os.path.join(scan_share, "config", "controllers.yaml")
     is_real = _as_bool(LaunchConfiguration("is_real_world").perform(context))
@@ -181,7 +200,8 @@ def _setup(context):
         )
     ]
     # ---- 节点 2：机器人模型显示（仅仿真）----
-    # 用 xacro 生成 robot_description，让 RViz 能画出 Go2 的外形。
+    # 用 xacro 生成 robot_description，让 RViz 能画出当前机型的机器人外形
+    # （模型由 robot 档案经 _ROBOT_MODELS 决定，见上方表）。
     # 真机上机器人模型与 TF 由宇树自身的驱动栈提供，重复发布反而会冲突，
     # 所以只在仿真（is_real_world:=false）时启动这个节点。
     if not is_real:
@@ -189,16 +209,11 @@ def _setup(context):
             Node(
                 package="robot_state_publisher",
                 executable="robot_state_publisher",
-                name="go2_robot_state_publisher",
+                name="robot_state_publisher",
                 output="screen",
                 parameters=[
                     common,
-                    {
-                        "robot_description": Command(
-                            ["xacro ", os.path.join(go2_share, "xacro", "robot.xacro"),
-                             " use_gazebo:=false"]
-                        )
-                    },
+                    {"robot_description": Command(_robot_description_command(robot))},
                 ],
             )
         )

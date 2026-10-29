@@ -41,7 +41,9 @@
   <depend>traj_utils</depend>
   <depend>visualization_msgs</depend>
 
+  <exec_depend>a2_description</exec_depend>
   <exec_depend>go2_description</exec_depend>
+  <exec_depend>go2w_description</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <!-- 下面这一组都是仿真/显示相关的包，只有在仿真模式运行才需要 -->
