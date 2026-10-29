@@ -20,6 +20,8 @@
 
 import os
 
+import yaml
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
@@ -31,6 +33,29 @@ from launch_ros.actions import Node
 # 把字符串形式的开关（如 "true"/"false"）转成 Python 的 True/False。
 def _as_bool(value):
     return value.lower() in ("1", "true", "yes", "on")
+
+
+# 读取机型档案（config/robots/<机型>.yaml），返回整份内容。
+# 档案里同时放“节点参数段”和“话题段”，换机型只要加一个文件、启动时换名字。
+def _load_robot_profile(scan_share, profile):
+    profile_dir = os.path.join(scan_share, "config", "robots")
+    path = os.path.join(profile_dir, profile + ".yaml")
+    if not os.path.isfile(path):
+        available = []
+        if os.path.isdir(profile_dir):
+            available = sorted(name[:-5] for name in os.listdir(profile_dir)
+                               if name.endswith(".yaml"))
+        raise RuntimeError(
+            "unknown robot profile '%s'; available profiles: %s"
+            % (profile, ", ".join(available) if available else "(none)")
+        )
+    with open(path, "r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+# 从档案里取出某个节点的参数段（形如 <节点名>: {ros__parameters: {...}}）。
+def _profile_params(profile, node_name):
+    return dict(profile.get(node_name, {}).get("ros__parameters", {}) or {})
 
 
 # 真正干活的函数：在这里根据参数决定启动哪些节点、做哪些话题重映射。
@@ -66,11 +91,27 @@ def _setup(context):
             "reference_path_file must reference an existing ROS 2 parameter YAML"
         )
 
-    # 初始位置：三种模式默认起点不同，所以按 navi_mode 各给一组默认值；
-    # 命令行若显式传了 init_x/init_y/init_z 就以下传的为准。
+    # ---- 机型档案（robot profile）----
+    # 机型相关的东西（机器人尺寸、速度上限、地图尺寸、真机话题名、初始位置）放在
+    # config/robots/<机型>.yaml 里，换机型只要加一个档案、启动时换名字，不必改代码：
+    #   robot:=a2    叠加 config/robots/a2.yaml
+    #   robot:=none  不叠加，纯用 planner.yaml / controllers.yaml 的通用默认（仿真常用）
+    # 不显式指定时：真机默认用 a2 档案，仿真不叠加。
+    robot = LaunchConfiguration("robot").perform(context).strip()
+    if not robot:
+        robot = "a2" if is_real else "none"
+    profile = {} if robot == "none" else _load_robot_profile(scan_share, robot)
+    profile_topics = profile.get("robot_topics", {}) or {}
+
+    # 初始位置优先级：命令行 init_x/init_y/init_z > 档案例 robot_topics.init
+    # > 按导航模式给的默认值（navi_mode=1 与其余模式的起点不同）。
     mode_default_init = (-19.0, 1.0, 0.25) if navi_mode == 1 else (-5.5, 5.5, 0.5)
+    profile_init = profile_topics.get("init")
+    if profile_init is not None and len(profile_init) != 3:
+        raise RuntimeError("robot_topics.init must be a [x, y, z] list")
+    fallback_init = tuple(profile_init) if profile_init else tuple(mode_default_init)
     initial_position = []
-    for name, default in zip(("init_x", "init_y", "init_z"), mode_default_init):
+    for name, default in zip(("init_x", "init_y", "init_z"), fallback_init):
         value = LaunchConfiguration(name).perform(context)
         initial_position.append(default if value == "" else float(value))
     init_x, init_y, init_z = initial_position
@@ -78,14 +119,14 @@ def _setup(context):
     # 下面这段是“二选一”：
     #   if 分支 = 真机：话题接 LIO 里程计/激光、相机内参用真机标定值；
     #   else 分支 = 仿真：话题接 /quad_0/*，点云已经是世界系、不需要外参。
-    # 真机话题名按 A2 上实际运行的 LIO（super_lio）输出来配：
-    # 点云已经在世界系下（cloud_world），所以不需要再做外参变换。
+    # 真机话题名优先取机型档案里的 robot_topics；档案没写就用下面这组默认
+    # （当前按 A2 上实际运行的 LIO/super_lio 配置，点云已在世界系下）。
     if is_real:
-        body_pose = "/lio/robo/odom"
-        sensor_pose = "/lio/imu/odom"
-        cloud = "/lio/cloud_world"
-        depth = "/camera/aligned_depth_to_color/image_raw"
-        cloud_is_world = True
+        body_pose = profile_topics.get("body_pose", "/lio/robo/odom")
+        sensor_pose = profile_topics.get("sensor_pose", "/lio/imu/odom")
+        cloud = profile_topics.get("cloud", "/lio/cloud_world")
+        depth = profile_topics.get("depth", "/camera/aligned_depth_to_color/image_raw")
+        cloud_is_world = bool(profile_topics.get("cloud_is_world", True))
         need_extrinsic = True
         intrinsics = {
             "grid_map.cx": 317.19183349609375,
@@ -103,6 +144,10 @@ def _setup(context):
         intrinsics = {}
 
     common = {"use_sim_time": use_sim_time}
+    # 机型档案里与各节点对应的参数段（没有就是空 dict，等于不覆盖）
+    planner_profile_params = _profile_params(profile, "scan_planner_node")
+    controller_profile_params = _profile_params(profile, "closed_loop_controller")
+    sim_profile_params = _profile_params(profile, "go2_kinematic_sim")
     planner_overrides = {
         **common,
         **intrinsics,
@@ -112,14 +157,16 @@ def _setup(context):
         "grid_map.need_extrinsic": need_extrinsic,
     }
     # ---- 节点 1：规划器本体（最重要）----
-    # parameters 按顺序叠加：先 planner.yaml，再（可选）航点文件，最后覆盖项。
+    # parameters 按顺序叠加：先 planner.yaml，再机型档案，再（可选）航点文件，最后覆盖项。
     actions = [
         Node(
             package="scan_planner",
             executable="scan_planner_node",
             name="scan_planner_node",
             output="screen",
-            parameters=[planner_yaml] + ([keypoints_file] if keypoints_file else []) + [planner_overrides],
+            parameters=[planner_yaml, planner_profile_params]
+            + ([keypoints_file] if keypoints_file else [])
+            + [planner_overrides],
             remappings=[
                 ("body_pose", body_pose),
                 ("sensor_pose", sensor_pose),
@@ -185,7 +232,7 @@ def _setup(context):
                 executable="closed_loop_controller",
                 name="closed_loop_controller",
                 output="screen",
-                parameters=[controllers_yaml, common],
+                parameters=[controllers_yaml, controller_profile_params, common],
                 remappings=[
                     ("body_pose", body_pose),
                     ("cmd_vel", "/cmd_vel" if is_real else "/quad_0/cmd_vel"),
@@ -203,6 +250,7 @@ def _setup(context):
                     output="screen",
                     parameters=[
                         controllers_yaml,
+                        sim_profile_params,
                         common,
                         {
                             "init_x": init_x,
@@ -288,6 +336,7 @@ def generate_launch_description():
             DeclareLaunchArgument("controller_mode", default_value="closed_loop"),
             DeclareLaunchArgument("keypoints_file", default_value=""),
             DeclareLaunchArgument("reference_path_file", default_value=""),
+            DeclareLaunchArgument("robot", default_value=""),
             DeclareLaunchArgument("use_gpu", default_value="false"),
             DeclareLaunchArgument("use_pcd_map", default_value="false"),
             DeclareLaunchArgument("pcd_map_file", default_value=""),

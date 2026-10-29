@@ -94,9 +94,10 @@ ros2 launch scan_planner run.launch.py \
 
 `reference_path_file` 只在 `navi_mode:=3` 下可用，且必须指向一个已存在的 ROS 2 参数文件。实机上通常不需要它——外部全局规划器会自行发布 `/global_path`。
 
-实际硬件部署时，激光惯导里程计（LIO）、相机和宇树（Unitree）驱动均为外部依赖。默认启动（`is_real_world:=true`、`navi_mode:=3`）会按 A2 上实际运行的 LIO 话题名把规划器输入映射到 `/lio/robo/odom`、`/lio/imu/odom`、`/lio/cloud_world`，以及 RealSense 对齐深度图话题 `/camera/aligned_depth_to_color/image_raw`；该 LIO 的点云已在世界系下，因此不再做外参变换。可根据实际安装的驱动栈修改话题重映射配置。
+实际硬件部署时，激光惯导里程计（LIO）、相机和宇树（Unitree）驱动均为外部依赖。启动参数与话题名等“机型相关”的内容由机型档案提供（见下方「机型档案」一节）：默认的真机档案按 A2 上实际运行的 LIO 话题名把规划器输入映射到 `/lio/robo/odom`、`/lio/imu/odom`、`/lio/cloud_world`，以及 RealSense 对齐深度图话题 `/camera/aligned_depth_to_color/image_raw`；该 LIO 的点云已在世界系下，因此不再做外参变换。
 
-初始位置默认值按导航模式区分：`navi_mode:=1` 为 `(-19.0, 1.0, 0.25)`，其余模式为 `(-5.5, 5.5, 0.5)`；显式传入 `init_x` / `init_y` / `init_z` 时以下传值为准。
+初始位置默认值按导航模式区分：`navi_mode:=1` 为 `(-19.0, 1.0, 0.25)`，其余模式为 `(-5.5, 5.5, 0.5)`（机型档案里可用 `init` 覆盖）；显式传入 `init_x` / `init_y` / `init_z` 时以下传值为准。
+
 
 ## 配置与接口
 
@@ -104,6 +105,40 @@ ros2 launch scan_planner run.launch.py \
 - `src/planner/plan_manage/config/planner.yaml`
 - `src/planner/plan_manage/config/controllers.yaml`
 - `src/planner/plan_manage/config/simulator.yaml`
+
+### 机型档案（多机器人切换）
+
+与具体机器人 / 场地相关的内容**不写进通用默认**，而是放在机型档案里：`src/planner/plan_manage/config/robots/<机型>.yaml`。
+
+档案只写“要覆盖的项”（不用复制整份 `planner.yaml`），启动时按 **`planner.yaml` → 机型档案 → 命令行参数** 的顺序叠加（后者覆盖前者）。档案里有两部分：
+
+- `scan_planner_node` / `closed_loop_controller` / `go2_kinematic_sim`：各节点的参数覆盖
+- `robot_topics`：不是节点参数，由启动文件读取，用来生成真机话题重映射与初始位置
+
+```bash
+# 用 A2 档案（真机默认就是它，不写 robot:= 也一样）
+ros2 launch scan_planner run.launch.py robot:=a2
+
+# 换成 Go2 / Go2-W
+ros2 launch scan_planner run.launch.py robot:=go2
+ros2 launch scan_planner run.launch.py robot:=go2w
+
+# 不叠加任何档案，纯用通用默认（仿真常用）
+ros2 launch scan_planner run.launch.py robot:=none is_real_world:=false navi_mode:=1
+```
+
+当前仓库自带三份档案：
+
+| 档案 | 依据 | 主要内容 |
+|---|---|---|
+| `a2.yaml` | 实机调试实测 | 机器人尺寸、速度上限、局部地图尺寸、真机话题名、初始位置 |
+| `go2.yaml` | [Go2 官方规格](https://www.unitree.com/go2)（站立 70×31×40 cm，约 15 kg，0~2.5/3.5/3.7 m/s） | 圆柱半径/偏移按车体尺寸换算、站立高度、速度上限 |
+| `go2w.yaml` | [Go2-W 官方规格](https://www.unitree.com/go2-w)（站立 70×43×50 cm，约 18 kg，0~2.5 m/s） | 同上（车体更宽更高，半径更大、偏移更小） |
+
+不显式指定 `robot:=` 时的规则：**真机（`is_real_world:=true`）默认用 `a2` 档案，仿真不叠加任何档案**。
+
+新增机型只需复制一份档案（例如 `go2.yaml`），改掉其中的数值与 `robot_topics`，启动时换成 `robot:=go2`，**不需要改代码**。档案名不存在时启动会直接报错并列出当前可用的档案。
+
 
 ROS 2 参数名称使用点号分隔，例如 `grid_map.resolution`。预设路径点是由 xyz 三元组组成的浮点数组：
 

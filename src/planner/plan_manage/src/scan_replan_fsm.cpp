@@ -98,7 +98,7 @@ namespace scan_planner
     self_inflation_z_down_ = load_parameter<double>(node_, "grid_map.obstacles_inflation_z_down", 0.0);
     self_double_cylinder_radius_ = load_parameter<double>(node_, "grid_map.double_cylinder_radius", 0.0);
     self_double_cylinder_offset_ = load_parameter<double>(node_, "grid_map.double_cylinder_offset", 0.0);
-    body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.0);
+    body_height_ = load_parameter<double>(node_, "grid_map.body_height", 0.4);
     self_inflation_frame_id_ = load_parameter<std::string>(node_, "grid_map.frame_id", "world");
     reference_tf_max_age_ = load_parameter<double>(node_, "fsm.reference_tf_max_age", 0.3);
     reference_tf_grace_ = load_parameter<double>(node_, "fsm.reference_tf_grace", 0.5);
@@ -173,7 +173,7 @@ namespace scan_planner
     // 模式 3：订阅外部发布的全局路径
     else if (navi_mode_ == NAVI_MODE::REFERENCE_PATH)
       path_sub_ = node_->create_subscription<nav_msgs::msg::Path>(
-          "initial_path", 1, std::bind(&SCANReplanFSM::pathCallback, this, std::placeholders::_1));
+          "initial_path", rclcpp::QoS(1).reliable().transient_local(), std::bind(&SCANReplanFSM::pathCallback, this, std::placeholders::_1));
     // 模式 2：预设航点，不需要订阅；收到第一帧里程计后自动开始
     else if (navi_mode_ == NAVI_MODE::PRESET_TARGET)
       RCLCPP_INFO(node_->get_logger(), "Preset waypoint mode will start after the first odometry message");
