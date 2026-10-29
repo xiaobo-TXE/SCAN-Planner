@@ -704,8 +704,10 @@ namespace scan_planner
     marker.color.g = 0.6;
     marker.color.b = 1.0;
     marker.color.a = 0.4;
-    // 生命周期 0.2 秒（过期自动消失，避免残影）
-    marker.lifetime = rclcpp::Duration::from_seconds(0.2);
+    // 生命周期 2 秒：既要“过期自动消失，避免残影”，又不能短到在重规划期间
+    // 被 RViz 判为过期（marker 由里程计回调发出，若规划占住执行器，回调会短暂停顿，
+    // 0.2 秒会因此整块闪掉）。2 秒足以跨过规划停顿，规划器退出后也会自动消失。
+    marker.lifetime = rclcpp::Duration::from_seconds(2.0);
 
     // 圆柱中心：机器人位置，高度方向按上下膨胀不对称做补偿
     Eigen::Vector3d center = odom_pos_;

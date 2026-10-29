@@ -57,7 +57,7 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /robot_description
-      Enabled: false
+      Enabled: true
       Links:
         All Links Enabled: true
         Expand Joint Details: false
@@ -67,10 +67,10 @@ Visualization Manager:
       Mass Properties:
         Inertia: false
         Mass: false
-      Name: Go2
+      Name: Robot Model
       TF Prefix: ""
       Update Interval: 0
-      Value: false
+      Value: true
       Visual Enabled: true
     - Alpha: 1
       Buffer Length: 1
@@ -248,6 +248,19 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /grid_map/sliding_map_bbox
+      Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Self Inflation
+      Namespaces:
+        self_inflation: true
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /self_inflation
       Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: false
@@ -452,7 +465,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: map
+    Fixed Frame: world
     Frame Rate: 30
   Name: root
   Tools:
