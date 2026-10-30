@@ -43,6 +43,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 #include <vector>
@@ -113,6 +114,18 @@ namespace scan_planner
     double reference_tf_max_age_{0.3}, reference_tf_grace_{0.5};
     double reference_tf_jump_translation_{0.2}, reference_tf_jump_yaw_{5.0 * 3.14159265358979323846 / 180.0};
 
+    // ---------- 运行状态(running/stopped)判定参数 ----------
+    // 到达目标的 2D 水平距离容差(米)
+    double status_goal_tol_{0.15};
+    // "速度为零"阈值(米/秒)
+    double status_speed_tol_{0.05};
+    // 到达且停稳持续多久才判为 stopped(秒)
+    double status_stop_debounce_{1.0};
+    // 心跳频率(Hz)：周期性重发当前状态；0 表示关闭
+    double status_heartbeat_hz_{1.0};
+    // 判定"目标变了"的位置阈值(米)：新目标点与上一次相差超过它才算新目标
+    double status_goal_change_eps_{0.05};
+
     // ---------- 运行时数据（程序自己维护的状态） ----------
     /* planning data */
     bool trigger_, have_target_, have_odom_, have_new_target_;
@@ -143,6 +156,20 @@ namespace scan_planner
     std::vector<Eigen::Vector3d> active_waypoints_;
     int current_wp_;
 
+    // ---------- 运行状态发布(running/stopped) ----------
+    // 是否收到过目标：没收到过属于 idle，不上话题
+    bool status_have_goal_{false};
+    // 当前是否已判为 stopped（锁存，直到收到新目标）
+    bool status_is_stop_{false};
+    // 是否已有"上一次目标点"，用于重复路径去重
+    bool status_goal_valid_{false};
+    // 上一次用于判定的目标点（参考系/map）
+    Eigen::Vector3d status_goal_ref_{Eigen::Vector3d::Zero()};
+    // "到达且停稳"起始时刻，用于去抖
+    rclcpp::Time status_hold_since_{0, 0, RCL_ROS_TIME};
+    // 上一次发布状态的时刻，用于心跳
+    rclcpp::Time status_last_pub_time_{0, 0, RCL_ROS_TIME};
+
     bool flag_escape_emergency_;
 
     /* ROS utils */
@@ -160,6 +187,8 @@ namespace scan_planner
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
     rclcpp::Publisher<scan_planner_msgs::msg::DataDisp>::SharedPtr data_disp_pub_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr self_inflation_pub_;
+    // 运行状态话题：只发 running / stopped（idle 不发）
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
 
     // ---------- 辅助函数（内部使用） ----------
     /* helper functions */
@@ -192,6 +221,12 @@ namespace scan_planner
     double getOdomYaw() const;
     double estimateYawFromSegment(const Eigen::Vector3d &from, const Eigen::Vector3d &to) const;
     void updateLocalTrajTimeFreeze();
+    // 收到新目标时调用：进入 running 并清掉 stopped/去抖状态
+    void armPlannerStatus();
+    // 每个 tick 评估是否"到达目标且停稳"，并用心跳周期重发
+    void updatePlannerStatus();
+    // 向 /local_planner/status 发布状态（空串不发布）
+    void publishPlannerStatus(const std::string &state);
 
     // ---------- ROS 回调函数（收到消息/定时器到点时被自动调用） ----------
     /* ROS functions */

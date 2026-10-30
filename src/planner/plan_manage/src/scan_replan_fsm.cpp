@@ -108,6 +108,13 @@ namespace scan_planner
         reference_tf_jump_translation_ <= 0.0 || reference_tf_jump_yaw_ <= 0.0)
       throw std::runtime_error("reference TF limits must be positive");
 
+    // ---------- 运行状态(running/stopped)判定参数 ----------
+    status_goal_tol_ = load_parameter<double>(node_, "fsm.status_goal_tol", 0.15);
+    status_speed_tol_ = load_parameter<double>(node_, "fsm.status_speed_tol", 0.05);
+    status_stop_debounce_ = load_parameter<double>(node_, "fsm.status_stop_debounce", 1.0);
+    status_heartbeat_hz_ = load_parameter<double>(node_, "fsm.status_heartbeat_hz", 1.0);
+    status_goal_change_eps_ = load_parameter<double>(node_, "fsm.status_goal_change_eps", 0.05);
+
     // ---------- 第3步：预设航点模式下，解析航点数组 ----------
     if (navi_mode_ == NAVI_MODE::PRESET_TARGET)
     {
@@ -163,6 +170,9 @@ namespace scan_planner
     self_inflation_pub_ = node_->create_publisher<visualization_msgs::msg::Marker>(
         // 发布机器人外形（前后两个圆柱的 Marker）
         "self_inflation", rclcpp::QoS(1).reliable().transient_local());
+    // 运行状态话题：只发 running / stopped（idle 不发），用 transient_local 让后订阅者也能拿到当前状态
+    status_pub_ = node_->create_publisher<std_msgs::msg::String>(
+        "/local_planner/status", rclcpp::QoS(1).reliable().transient_local());
 
     // ---------- 第8步：按导航模式订阅对应的“目标来源” ----------
     if (navi_mode_ == NAVI_MODE::MANUAL_TARGET)
@@ -290,6 +300,8 @@ namespace scan_planner
       // 标记“已有目标”“这是一个新目标”
       have_target_ = true;
       have_new_target_ = true;
+      // 新目标 → 运行状态置为 running
+      armPlannerStatus();
 
       /*** FSM ***/
       // 按当前状态切换：等待中→生成新轨迹；正在执行→重新规划
@@ -537,6 +549,15 @@ namespace scan_planner
       return;
     }
 
+    // 运行状态：只有"目标点变了"才算新目标；重复的同一条路径不重置状态
+    const bool status_new_goal =
+        !status_goal_valid_ || (waypoints.back() - status_goal_ref_).norm() > status_goal_change_eps_;
+    if (status_new_goal)
+    {
+      status_goal_ref_ = waypoints.back();
+      status_goal_valid_ = true;
+    }
+
     // 记住这条参考路径的坐标系，并清掉上一轮的 TF 状态
     reference_frame_id_ = msg->header.frame_id;
     have_last_reference_transform_ = false;
@@ -549,6 +570,10 @@ namespace scan_planner
     // 成功 → 按当前状态切到“生成新轨迹”或“重新规划”
     if (success)
     {
+      // 目标变化 → 进入 running（重复路径不重置）
+      if (status_new_goal)
+        armPlannerStatus();
+
       if (reference_tf_jump_failed_)
       {
         reference_tf_jump_failed_ = false;
@@ -646,6 +671,68 @@ namespace scan_planner
     if (go2_execution_frozen_ && info->start_time_.seconds() > 1e-5)
       // 效果：轨迹时钟暂停，机器人原地转向的时间不会“消耗”轨迹
       info->start_time_ += rclcpp::Duration::from_seconds(dt);
+  }
+
+  // 收到新目标时进入 running；若之前是 stopped，这里把它重置。
+  void SCANReplanFSM::armPlannerStatus()
+  {
+    status_have_goal_ = true;
+    status_is_stop_ = false;
+    status_hold_since_ = rclcpp::Time(0, 0, node_->get_clock()->get_clock_type());
+    publishPlannerStatus("running");
+  }
+
+  // 每个 tick 判断"到达目标且停稳"：到达(2D 距离 < 容差)且速度≈0，持续去抖后判 stopped；
+  // 并按心跳周期重发当前状态。idle（从未收到目标）不发消息。
+  void SCANReplanFSM::updatePlannerStatus()
+  {
+    if (!status_have_goal_)
+      return;
+
+    const rclcpp::Time now = node_->now();
+
+    if (!status_is_stop_)
+    {
+      // 2D 水平距离（end_pt_ 与 odom_pos_ 都在 world 系），口径与控制器 finish_dist 一致
+      const bool arrived =
+          (end_pt_.head<2>() - odom_pos_.head<2>()).norm() < status_goal_tol_;
+      // 实际速度范数（与坐标系无关）
+      const bool stopped = odom_vel_.norm() < status_speed_tol_;
+      if (arrived && stopped)
+      {
+        if (status_hold_since_.nanoseconds() == 0)
+        {
+          status_hold_since_ = now;
+        }
+        else if ((now - status_hold_since_).seconds() >= status_stop_debounce_)
+        {
+          status_is_stop_ = true;
+          publishPlannerStatus("stopped");
+        }
+      }
+      else
+      {
+        status_hold_since_ = rclcpp::Time(0, 0, node_->get_clock()->get_clock_type());
+      }
+    }
+
+    // 低频心跳：周期性重发当前状态
+    if (status_heartbeat_hz_ > 1e-6 &&
+        (now - status_last_pub_time_).seconds() >= 1.0 / status_heartbeat_hz_)
+    {
+      publishPlannerStatus(status_is_stop_ ? "stopped" : "running");
+    }
+  }
+
+  // 把状态发到 /local_planner/status（std_msgs/String）；空串不发布。
+  void SCANReplanFSM::publishPlannerStatus(const std::string &state)
+  {
+    if (state.empty())
+      return;
+    std_msgs::msg::String msg;
+    msg.data = state;
+    status_pub_->publish(msg);
+    status_last_pub_time_ = node_->now();
   }
 
   // 从里程计的姿态里取出“偏航角 yaw”（即机器人朝哪个方向）。
@@ -783,6 +870,8 @@ namespace scan_planner
   {
     // 第一步：处理“冻结”（底盘原地转向时暂停轨迹时钟）
     updateLocalTrajTimeFreeze();
+    // 同步运行状态（running/stopped）；放在最前，避免被后续的提前 return 跳过
+    updatePlannerStatus();
     if (!monitorReferenceTransform())
       return;
 

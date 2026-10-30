@@ -31,6 +31,18 @@ scan_planner_node:
     # 连续规划失败超过这个次数，就强制进入紧急停止
     fsm.max_replan_fail_count: 1000
 
+    # ---- 运行状态(running/stopped)判定（发到 /local_planner/status）----
+    # 到达目标的 2D 水平距离容差(米)：与控制器 finish_dist 口径一致
+    fsm.status_goal_tol: 0.15
+    # "速度为零"阈值(米/秒)
+    fsm.status_speed_tol: 0.05
+    # 到达且停稳持续多久才判为 stopped(秒)
+    fsm.status_stop_debounce: 1.0
+    # 心跳频率(Hz)：周期性重发当前状态；0 表示关闭
+    fsm.status_heartbeat_hz: 1.0
+    # 判定"目标变了"的位置阈值(米)：新目标点与上一次相差超过它才算新目标
+    fsm.status_goal_change_eps: 0.05
+
     # 下面四项只在 navi_mode=3（参考路径）下生效，用来判断"参考坐标系"是否还可信。
     # 参考路径写在地图系/参考系下，规划时要靠 TF 把它换算到 world 系；
     # TF 一旦长时间拿不到、或突然跳变，就必须停下来重新规划。
