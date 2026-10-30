@@ -108,7 +108,7 @@ namespace scan_planner
         reference_tf_jump_translation_ <= 0.0 || reference_tf_jump_yaw_ <= 0.0)
       throw std::runtime_error("reference TF limits must be positive");
 
-    // ---------- 运行状态(running/stopped)判定参数 ----------
+    // ---------- 运行状态(running/goal_reached)判定参数 ----------
     status_goal_tol_ = load_parameter<double>(node_, "fsm.status_goal_tol", 0.15);
     status_speed_tol_ = load_parameter<double>(node_, "fsm.status_speed_tol", 0.05);
     status_stop_debounce_ = load_parameter<double>(node_, "fsm.status_stop_debounce", 1.0);
@@ -170,7 +170,7 @@ namespace scan_planner
     self_inflation_pub_ = node_->create_publisher<visualization_msgs::msg::Marker>(
         // 发布机器人外形（前后两个圆柱的 Marker）
         "self_inflation", rclcpp::QoS(1).reliable().transient_local());
-    // 运行状态话题：只发 running / stopped（idle 不发），用 transient_local 让后订阅者也能拿到当前状态
+    // 运行状态话题：只发 running / goal_reached（idle 不发），用 transient_local 让后订阅者也能拿到当前状态
     status_pub_ = node_->create_publisher<std_msgs::msg::String>(
         "/local_planner/status", rclcpp::QoS(1).reliable().transient_local());
 
@@ -673,7 +673,7 @@ namespace scan_planner
       info->start_time_ += rclcpp::Duration::from_seconds(dt);
   }
 
-  // 收到新目标时进入 running；若之前是 stopped，这里把它重置。
+  // 收到新目标时进入 running；若之前是 goal_reached，这里把它重置。
   void SCANReplanFSM::armPlannerStatus()
   {
     status_have_goal_ = true;
@@ -682,7 +682,7 @@ namespace scan_planner
     publishPlannerStatus("running");
   }
 
-  // 每个 tick 判断"到达目标且停稳"：到达(2D 距离 < 容差)且速度≈0，持续去抖后判 stopped；
+  // 每个 tick 判断"到达目标且停稳"：到达(2D 距离 < 容差)且速度≈0，持续去抖后判 goal_reached；
   // 并按心跳周期重发当前状态。idle（从未收到目标）不发消息。
   void SCANReplanFSM::updatePlannerStatus()
   {
@@ -707,7 +707,7 @@ namespace scan_planner
         else if ((now - status_hold_since_).seconds() >= status_stop_debounce_)
         {
           status_is_stop_ = true;
-          publishPlannerStatus("stopped");
+          publishPlannerStatus("goal_reached");
         }
       }
       else
@@ -720,7 +720,7 @@ namespace scan_planner
     if (status_heartbeat_hz_ > 1e-6 &&
         (now - status_last_pub_time_).seconds() >= 1.0 / status_heartbeat_hz_)
     {
-      publishPlannerStatus(status_is_stop_ ? "stopped" : "running");
+      publishPlannerStatus(status_is_stop_ ? "goal_reached" : "running");
     }
   }
 
@@ -870,7 +870,7 @@ namespace scan_planner
   {
     // 第一步：处理“冻结”（底盘原地转向时暂停轨迹时钟）
     updateLocalTrajTimeFreeze();
-    // 同步运行状态（running/stopped）；放在最前，避免被后续的提前 return 跳过
+    // 同步运行状态（running/goal_reached）；放在最前，避免被后续的提前 return 跳过
     updatePlannerStatus();
     if (!monitorReferenceTransform())
       return;

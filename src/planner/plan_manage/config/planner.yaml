@@ -31,12 +31,12 @@ scan_planner_node:
     # 连续规划失败超过这个次数，就强制进入紧急停止
     fsm.max_replan_fail_count: 1000
 
-    # ---- 运行状态(running/stopped)判定（发到 /local_planner/status）----
+    # ---- 运行状态(running/goal_reached)判定（发到 /local_planner/status）----
     # 到达目标的 2D 水平距离容差(米)：与控制器 finish_dist 口径一致
     fsm.status_goal_tol: 0.15
     # "速度为零"阈值(米/秒)
     fsm.status_speed_tol: 0.05
-    # 到达且停稳持续多久才判为 stopped(秒)
+    # 到达且停稳持续多久才判为 goal_reached(秒)
     fsm.status_stop_debounce: 1.0
     # 心跳频率(Hz)：周期性重发当前状态；0 表示关闭
     fsm.status_heartbeat_hz: 1.0
