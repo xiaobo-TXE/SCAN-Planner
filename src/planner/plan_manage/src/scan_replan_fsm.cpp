@@ -682,8 +682,8 @@ namespace scan_planner
     publishPlannerStatus("running");
   }
 
-  // 每个 tick 判断"到达目标且停稳"：到达(2D 距离 < 容差)且速度≈0，持续去抖后判 goal_reached；
-  // 并按心跳周期重发当前状态。idle（从未收到目标）不发消息。
+  // 每个 tick 判断"到达目标且停稳"：到达(2D 距离 < 容差)且速度≈0，持续去抖后发一次 goal_reached；
+  // running 期间按心跳周期重发。idle（从未收到目标）不发消息。
   void SCANReplanFSM::updatePlannerStatus()
   {
     if (!status_have_goal_)
@@ -716,11 +716,11 @@ namespace scan_planner
       }
     }
 
-    // 低频心跳：周期性重发当前状态
-    if (status_heartbeat_hz_ > 1e-6 &&
+    // 低频心跳：只在 running 期间周期重发；goal_reached 只在到达时发一次
+    if (!status_is_stop_ && status_heartbeat_hz_ > 1e-6 &&
         (now - status_last_pub_time_).seconds() >= 1.0 / status_heartbeat_hz_)
     {
-      publishPlannerStatus(status_is_stop_ ? "goal_reached" : "running");
+      publishPlannerStatus("running");
     }
   }
 
