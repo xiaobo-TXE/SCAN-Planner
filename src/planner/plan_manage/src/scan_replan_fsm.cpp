@@ -159,6 +159,10 @@ namespace scan_planner
     go2_execution_frozen_sub_ = node_->create_subscription<std_msgs::msg::Bool>(
         "planning/go2_execution_frozen", 10,
         std::bind(&SCANReplanFSM::go2ExecutionFrozenCallback, this, std::placeholders::_1));
+    // 任务控制：/mission/control（"pause" 清轨迹停住 / "resume" 重建并继续）；锁存
+    mission_control_sub_ = node_->create_subscription<std_msgs::msg::String>(
+        "/mission/control", rclcpp::QoS(1).reliable().transient_local(),
+        std::bind(&SCANReplanFSM::missionControlCallback, this, std::placeholders::_1));
 
     // ---------- 第7步：创建发布器 ----------
     bspline_pub_ = node_->create_publisher<scan_planner_msgs::msg::Bspline>("planning/bspline", 10);
@@ -549,6 +553,15 @@ namespace scan_planner
       return;
     }
 
+    // 缓存最近一条可用的全局路径：外部 resume 时用它重建
+    last_global_path_ = msg;
+    // 外部停止期间只缓存、不规划（恢复时再重建）
+    if (externally_stopped_)
+    {
+      RCLCPP_INFO(node_->get_logger(), "External STOP active: /global_path cached, not planning");
+      return;
+    }
+
     // 运行状态：只有"目标点变了"才算新目标；重复的同一条路径不重置状态
     const bool status_new_goal =
         !status_goal_valid_ || (waypoints.back() - status_goal_ref_).norm() > status_goal_change_eps_;
@@ -679,17 +692,30 @@ namespace scan_planner
     status_have_goal_ = true;
     status_is_stop_ = false;
     status_hold_since_ = rclcpp::Time(0, 0, node_->get_clock()->get_clock_type());
-    publishPlannerStatus("running");
+    // 外部停止期间不发 running（状态话题保持 stopped）
+    if (!externally_stopped_)
+      publishPlannerStatus("running");
   }
 
   // 每个 tick 判断"到达目标且停稳"：到达(2D 距离 < 容差)且速度≈0，持续去抖后发一次 goal_reached；
   // running 期间按心跳周期重发。idle（从未收到目标）不发消息。
   void SCANReplanFSM::updatePlannerStatus()
   {
+    const rclcpp::Time now = node_->now();
+
+    // 外部停止（/mission/control = pause）：状态话题为 stopped，1Hz 重发
+    if (externally_stopped_)
+    {
+      if (status_heartbeat_hz_ > 1e-6 &&
+          (now - status_last_pub_time_).seconds() >= 1.0 / status_heartbeat_hz_)
+      {
+        publishPlannerStatus("stopped");
+      }
+      return;
+    }
+
     if (!status_have_goal_)
       return;
-
-    const rclcpp::Time now = node_->now();
 
     if (!status_is_stop_)
     {
@@ -733,6 +759,68 @@ namespace scan_planner
     msg.data = state;
     status_pub_->publish(msg);
     status_last_pub_time_ = node_->now();
+  }
+
+  // 任务控制回调：/mission/control → "pause"（清轨迹停住）/ "resume"（重建并继续）
+  void SCANReplanFSM::missionControlCallback(const std_msgs::msg::String::ConstSharedPtr &msg)
+  {
+    if (!msg)
+      return;
+    if (msg->data == "pause")
+    {
+      if (!externally_stopped_)
+        applyExternalStop();
+    }
+    else if (msg->data == "resume")
+    {
+      if (externally_stopped_)
+        applyExternalResume();
+    }
+  }
+
+  // 外部停止：清全局参考轨迹 + 清局部轨迹（机器人由控制器停住）；局部地图照常更新。
+  void SCANReplanFSM::applyExternalStop()
+  {
+    externally_stopped_ = true;
+    // 清全局参考轨迹
+    planner_manager_->global_data_.global_duration_ = 0.0;
+    planner_manager_->global_data_.last_progress_time_ = 0.0;
+    reference_end_pt_.setZero();
+    end_pt_.setZero();
+    end_vel_.setZero();
+    have_target_ = false;
+    have_new_target_ = false;
+    trigger_ = false;
+    have_last_reference_transform_ = false;
+    // 清局部轨迹
+    planner_manager_->local_data_.duration_ = 0.0;
+    planner_manager_->local_data_.start_time_ =
+        rclcpp::Time(0, 0, node_->get_clock()->get_clock_type());
+    // 状态 → stopped（立即发一次，之后 1Hz）
+    status_hold_since_ = rclcpp::Time(0, 0, node_->get_clock()->get_clock_type());
+    publishPlannerStatus("stopped");
+    RCLCPP_WARN(node_->get_logger(),
+                "External STOP: global/local trajectories cleared; local map kept");
+  }
+
+  // 外部继续：(a) 有缓存的全局路径 → 重建并规划；(b) 否则等新的 /global_path。
+  void SCANReplanFSM::applyExternalResume()
+  {
+    externally_stopped_ = false;
+    status_is_stop_ = false;  // 恢复后重新判定是否到达
+    if (last_global_path_ && !last_global_path_->poses.empty())
+    {
+      RCLCPP_INFO(node_->get_logger(), "External RESUME: rebuilding from cached /global_path");
+      pathCallback(last_global_path_);
+      changeFSMExecState(GEN_NEW_TRAJ, "RESUME");
+    }
+    else
+    {
+      RCLCPP_INFO(node_->get_logger(), "External RESUME: waiting for a new /global_path");
+      changeFSMExecState(WAIT_TARGET, "RESUME");
+    }
+    // 状态话题回到 running（下一次心跳也会重发）
+    publishPlannerStatus("running");
   }
 
   // 从里程计的姿态里取出“偏航角 yaw”（即机器人朝哪个方向）。
@@ -870,8 +958,11 @@ namespace scan_planner
   {
     // 第一步：处理“冻结”（底盘原地转向时暂停轨迹时钟）
     updateLocalTrajTimeFreeze();
-    // 同步运行状态（running/goal_reached）；放在最前，避免被后续的提前 return 跳过
+    // 同步运行状态（running/goal_reached/stopped）；放在最前，避免被后续的提前 return 跳过
     updatePlannerStatus();
+    // 外部停止（/mission/control = pause）：不重规划、不推进，直到 resume
+    if (externally_stopped_)
+      return;
     if (!monitorReferenceTransform())
       return;
 
@@ -1319,6 +1410,9 @@ namespace scan_planner
   {
     // 同样先处理“冻结”
     updateLocalTrajTimeFreeze();
+    // 外部停止期间不做碰撞检查
+    if (externally_stopped_)
+      return;
 
     // 取出当前局部轨迹和地图
     LocalTrajData *info = &planner_manager_->local_data_;

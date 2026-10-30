@@ -170,6 +170,11 @@ namespace scan_planner
     // 上一次发布状态的时刻，用于心跳
     rclcpp::Time status_last_pub_time_{0, 0, RCL_ROS_TIME};
 
+    // 外部任务控制：/mission/control 是否处于 pause（停止）
+    bool externally_stopped_{false};
+    // 最近一条可用的全局路径（/global_path）；resume 时用它重建
+    nav_msgs::msg::Path::ConstSharedPtr last_global_path_;
+
     bool flag_escape_emergency_;
 
     /* ROS utils */
@@ -183,6 +188,8 @@ namespace scan_planner
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr go2_execution_frozen_sub_;
+    // 任务控制：/mission/control（pause 停 / resume 继续）
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_control_sub_;
     rclcpp::Publisher<scan_planner_msgs::msg::Bspline>::SharedPtr bspline_pub_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr local_path_pub_;
     rclcpp::Publisher<scan_planner_msgs::msg::DataDisp>::SharedPtr data_disp_pub_;
@@ -227,6 +234,12 @@ namespace scan_planner
     void updatePlannerStatus();
     // 向 /local_planner/status 发布状态（空串不发布）
     void publishPlannerStatus(const std::string &state);
+    // 任务控制回调：pause / resume
+    void missionControlCallback(const std_msgs::msg::String::ConstSharedPtr &msg);
+    // 外部停止：清全局+局部轨迹，状态置 stopped
+    void applyExternalStop();
+    // 外部继续：用缓存路径重建，或等待新的 /global_path
+    void applyExternalResume();
 
     // ---------- ROS 回调函数（收到消息/定时器到点时被自动调用） ----------
     /* ROS functions */
