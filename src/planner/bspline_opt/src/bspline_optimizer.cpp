@@ -211,6 +211,20 @@ namespace scan_planner
       }
       else
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        // 一次打全：失败类型 / 段号 / 段长 / 两端坐标 / 两端是否在膨胀区（1=障碍 0=空 -1=出图）
+        const int id_in = segment_ids[i].first, id_out = segment_ids[i].second;
+        static rclcpp::Clock diag_clock(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock, 1000,
+            "[A-star FAIL] type=%s seg(in_id=%d,out_id=%d) len=%.2fm | "
+            "in=(%.2f,%.2f,%.2f) occ_in=%d | out=(%.2f,%.2f,%.2f) occ_out=%d",
+            replanFailureToString(ret == ASTAR_RET::INIT_ERR ? ReplanFailure::ASTAR_INIT_ERR
+                                                             : ReplanFailure::ASTAR_NO_PATH),
+            id_in, id_out, (out - in).norm(),
+            in.x(), in.y(), in.z(),
+            grid_map_->getInflateOccupancy(in, estimateControlPointYaw(cps_.points, id_in)),
+            out.x(), out.y(), out.z(),
+            grid_map_->getInflateOccupancy(out, estimateControlPointYaw(cps_.points, id_out)));
         // A* 都失败了 → 放弃这次优化
         RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "A-star failed; aborting optimization");
         last_failure_ = (ret == ASTAR_RET::INIT_ERR) ? ReplanFailure::ASTAR_INIT_ERR : ReplanFailure::ASTAR_NO_PATH;
