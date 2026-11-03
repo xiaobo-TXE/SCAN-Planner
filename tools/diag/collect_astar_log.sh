@@ -192,7 +192,7 @@ fi
 log "启动：$CMD"
 log "日志：$LOGFILE"
 log "---------------------------------------------------------"
-"$CMD" > "$LOGFILE" 2>&1 &
+bash -c "$CMD" > "$LOGFILE" 2>&1 &
 LPID=$!
 # 实时显示（过滤掉点云类刷屏，只保留日志/规划相关内容）
 tail -n +1 -f "$LOGFILE" 2>/dev/null &
