@@ -992,6 +992,28 @@ namespace scan_planner
 
       // 当前时刻应该到达的位置
       Eigen::Vector3d pos = info->position_traj_.evaluateDeBoorT(t_cur);
+      // ===== 临时诊断（测试用，可整段删除）=====
+      {
+        static double diag_last1 = -1e9;
+        if (time_now.seconds() - diag_last1 >= 1.0)
+        {
+          diag_last1 = time_now.seconds();
+          double diag_bd = 1e18, diag_bt = 0.0;
+          const double diag_ds = std::max(0.02, info->duration_ / 100.0);
+          for (double td = 0.0; td <= info->duration_ + 1e-6; td += diag_ds)
+          {
+            const double dd = (info->position_traj_.evaluateDeBoorT(std::min(td, info->duration_)) - odom_pos_).norm();
+            if (dd < diag_bd) { diag_bd = dd; diag_bt = td; }
+          }
+          const Eigen::Vector3d diag_pp = info->position_traj_.evaluateDeBoorT(diag_bt);
+          RCLCPP_ERROR(rclcpp::get_logger("scan_replan_fsm"),
+              "[轨迹诊断] EXEC_TRAJ id=%d t_cur=%.3f 时长=%.3f | 轨迹点(t_cur)=(%.3f,%.3f) | odom=(%.3f,%.3f) | odom投影t=%.3f 投影点=(%.3f,%.3f) 投影距=%.3f | 轨迹起点=(%.3f,%.3f) 前视偏差=%.3f",
+              (int)info->traj_id_, t_cur, info->duration_,
+              pos.x(), pos.y(), odom_pos_.x(), odom_pos_.y(),
+              diag_bt, diag_pp.x(), diag_pp.y(), diag_bd,
+              info->start_pos_.x(), info->start_pos_.y(), (pos - odom_pos_).norm());
+        }
+      }
 
       // 【航点模式】已到当前航点附近（0.5 米内）→ 前往下一个航点
       if (isWaypointSequenceMode() &&
@@ -1162,6 +1184,19 @@ namespace scan_planner
     double t_cur = (time_now - info->start_time_).seconds();
     // 把时间夹在 [0, 总时长] 之内（防止负值或超界）
     t_cur = std::min(std::max(t_cur, 0.0), info->duration_);
+    // ===== 临时诊断（测试用，可整段删除）=====
+    {
+      static double diag_last2 = -1e9;
+      if (time_now.seconds() - diag_last2 >= 1.0)
+      {
+        diag_last2 = time_now.seconds();
+        const Eigen::Vector3d diag_tp = info->position_traj_.evaluateDeBoorT(t_cur);
+        RCLCPP_ERROR(rclcpp::get_logger("scan_replan_fsm"),
+            "[轨迹诊断] REPLAN起点 模式=%s t_cur=%.3f | 轨迹点(t_cur)=(%.3f,%.3f) | odom=(%.3f,%.3f) 两者相距=%.3f",
+            (navi_mode_ == NAVI_MODE::REFERENCE_PATH ? "参考路径" : "普通"),
+            t_cur, diag_tp.x(), diag_tp.y(), odom_pos_.x(), odom_pos_.y(), (diag_tp - odom_pos_).norm());
+      }
+    }
 
     //cout << "info->velocity_traj_=" << info->velocity_traj_.get_control_points() << endl;
 
@@ -1663,6 +1698,14 @@ namespace scan_planner
     }
     // 把“进度时间”记成局部目标时刻，保证下一轮从这里继续（不会回头看）
     planner_manager_->global_data_.last_progress_time_ = target_found ? target_t : duration;
+    // ===== 临时诊断（测试用，可整段删除）=====
+    {
+      static rclcpp::Clock diag_lt_clock(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_lt_clock, 1000,
+          "[轨迹诊断] 局部目标 start_pt=(%.3f,%.3f) reference_start=(%.3f,%.3f) t_proj=%.3f | 目标=(%.3f,%.3f) target_t=%.3f 全局时长=%.3f",
+          start_pt_.x(), start_pt_.y(), reference_start.x(), reference_start.y(), t_proj,
+          local_target_pt_.x(), local_target_pt_.y(), target_t, duration);
+    }
 
     // 小工具：查询某个点是否被障碍占据（查询时带上朝向）
     auto targetOccupancy = [&](const Eigen::Vector3d &pt) {

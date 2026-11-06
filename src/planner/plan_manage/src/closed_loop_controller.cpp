@@ -267,6 +267,15 @@ private:
       // 发全 0 指令 → 停住
       command = geometry_msgs::msg::Twist();
     // 发布速度指令
+    // ===== 临时诊断（测试用，可整段删除）=====
+    {
+      static rclcpp::Clock diag_ctrl_clock(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(get_logger(), diag_ctrl_clock, 1000,
+          "[轨迹诊断] 控制器 exec_time=%.3f/%.3f | 轨迹点=(%.3f,%.3f) | odom=(%.3f,%.3f) 位置误差=%.3f | 指令 vx=%.3f vy=%.3f wz=%.3f",
+          exec_time_, traj_duration_, pos_des.x(), pos_des.y(),
+          odom_pos_.x(), odom_pos_.y(), pos_error.norm(),
+          command.linear.x, command.linear.y, command.angular.z);
+    }
     cmd_vel_pub_->publish(command);
   }
 

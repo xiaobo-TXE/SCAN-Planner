@@ -259,6 +259,16 @@ namespace scan_planner
         double t;
         // 上一条轨迹已经执行了多少秒
         double t_cur = (node_->now() - local_data_.start_time_).seconds();
+        // ===== 临时诊断（测试用，可整段删除）=====
+        {
+          static rclcpp::Clock diag_pm_clock(RCL_STEADY_TIME);
+          const Eigen::Vector3d diag_sl = local_data_.position_traj_.evaluateDeBoorT(std::min(t_cur, local_data_.duration_));
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("planner_manager"), diag_pm_clock, 1000,
+              "[轨迹诊断] 初始路径=沿用旧轨迹 t_cur=%.3f 旧轨迹时长=%.3f | 旧轨迹起点=(%.3f,%.3f) | 切片起点(t_cur)=(%.3f,%.3f) | 按时间已剪掉=%.3f m",
+              t_cur, local_data_.duration_,
+              local_data_.start_pos_.x(), local_data_.start_pos_.y(),
+              diag_sl.x(), diag_sl.y(), (diag_sl - local_data_.start_pos_).norm());
+        }
 
         // 把上一条轨迹“从当前位置往后”按弧长参数化（方便按固定间距重采样）
         vector<double> pseudo_arc_length;
