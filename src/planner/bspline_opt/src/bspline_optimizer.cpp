@@ -212,14 +212,12 @@ namespace scan_planner
       else
       {
         // ===== 临时诊断（测试用，可整段删除）=====
-        // 一次打全：失败类型 / 段号 / 段长 / 两端坐标 / 两端是否在膨胀区（1=障碍 0=空 -1=出图）
-        // 本基线没有 ReplanFailure 枚举，失败类型就地判断（astar_init_err / astar_no_path）
+        // 一次打全：原因 / 段号 / 段长 / 两端坐标 / 两端是否在膨胀区（1=障碍 0=空 -1=出图）
         const int id_in = segment_ids[i].first, id_out = segment_ids[i].second;
-        static rclcpp::Clock diag_clock(RCL_STEADY_TIME);
-        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock, 1000,
-            "[A-star FAIL] type=%s seg(in_id=%d,out_id=%d) len=%.2fm | "
-            "in=(%.2f,%.2f,%.2f) occ_in=%d | out=(%.2f,%.2f,%.2f) occ_out=%d",
-            (ret == ASTAR_RET::INIT_ERR ? "astar_init_err" : "astar_no_path"),
+        static rclcpp::Clock diag_clock_a(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock_a, 1000,
+            "[规划失败] 原因=%s 段(in=%d,out=%d) 长=%.2fm 起点=(%.2f,%.2f,%.2f) 起点状态=%d 终点=(%.2f,%.2f,%.2f) 终点状态=%d",
+            (ret == ASTAR_RET::INIT_ERR ? "A星起终点错误" : "A星无可行路径"),
             id_in, id_out, (out - in).norm(),
             in.x(), in.y(), in.z(),
             grid_map_->getInflateOccupancy(in, estimateControlPointYaw(cps_.points, id_in)),
@@ -954,6 +952,10 @@ namespace scan_planner
         // 一路找到头都没找到 → 说明机器人本身已经在障碍里
         if (j < 0) // fail to get the obs free point
         {
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock0, 1000,
+              "[规划失败] 原因=起点在障碍内");
           RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"), "The robot is inside an obstacle");
           in_id = 0;
         }
@@ -972,6 +974,10 @@ namespace scan_planner
         // 连终点都在障碍里 → 这条轨迹救不回来，标记为错误并停止
         if (j >= cps_.size) // fail to get the obs free point
         {
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock0, 1000,
+              "[规划失败] 原因=轨迹末端在障碍内");
           RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                       "Trajectory terminal point is in an obstacle; skip this plan");
 
@@ -1282,6 +1288,10 @@ namespace scan_planner
                    << cps_.points.col(2).transpose() << "\n"
                    << cps_.points.col(3).transpose() << "\n"
                    << cps_.points.col(4).transpose() << endl;
+              // ===== 临时诊断（测试用，可整段删除）=====
+              static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+              RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock0, 1000,
+                  "[规划失败] 原因=起点前几个控制点在障碍内");
               RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                           "First three control points are in obstacles; t=%f", t);
               return false;
@@ -1321,6 +1331,10 @@ namespace scan_planner
       else
       {
         // 其它求解错误 → 打警告并放弃本次规划
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock0, 1000,
+            "[规划失败] 原因=优化求解器失败");
         RCLCPP_WARN(rclcpp::get_logger("bspline_opt"),
                     "Solver error. Return=%d, %s; skip this plan", result, lbfgs::lbfgs_strerror(result));
         // while (ros::ok());
@@ -1376,6 +1390,10 @@ namespace scan_planner
       }
       else
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock0, 1000,
+            "[规划失败] 原因=细化求解器失败");
         RCLCPP_ERROR(rclcpp::get_logger("bspline_opt"),
                      "Solver error while refining: return=%d, %s", result, lbfgs::lbfgs_strerror(result));
       }
@@ -1400,6 +1418,10 @@ namespace scan_planner
             ref_pts.row(i) = ref_pts_[i].transpose();
           }
 
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("bspline_opt"), diag_clock0, 1000,
+              "[规划失败] 原因=细化后仍碰撞");
           // 标记不安全（下面会把贴合权重加倍，再试一轮）
           flag_safe = false;
           break;

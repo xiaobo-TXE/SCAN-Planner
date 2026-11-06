@@ -210,6 +210,10 @@ namespace scan_planner
     else
     {
       // 失败 → 打错误日志（状态保持不变）
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+          "[规划失败] 原因=全局轨迹生成失败(首个预设航点)");
       RCLCPP_ERROR(node_->get_logger(), "Unable to generate global trajectory to first preset waypoint");
     }
   }
@@ -343,6 +347,10 @@ namespace scan_planner
     // 失败 → 打日志并返回
     if (!success)
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+          "[规划失败] 原因=全局轨迹生成失败(航点)");
       RCLCPP_ERROR(node_->get_logger(), "Unable to generate global trajectory from waypoints");
       return false;
     }
@@ -396,6 +404,10 @@ namespace scan_planner
     if (!success)
     // 失败 → 报错返回
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+          "[规划失败] 原因=全局轨迹生成失败(航点)");
       RCLCPP_ERROR(node_->get_logger(), "[navi_mode=%d] Unable to generate trajectory to waypoint %d",
                    navi_mode_, current_wp_ + 1);
       return false;
@@ -488,6 +500,10 @@ namespace scan_planner
     }
 
     // 整条轨迹都找不到可用点 → 报错返回失败
+    // ===== 临时诊断（测试用，可整段删除）=====
+    static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+    RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+        "[规划失败] 原因=终点被占无替代点");
     RCLCPP_ERROR(node_->get_logger(),
                  "Target is occupied and no collision-free point was found on the global trajectory");
     return false;
@@ -566,6 +582,10 @@ namespace scan_planner
       }
 
       // 打日志确认已接受参考路径
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+          "[规划失败] 原因=全局轨迹生成失败(参考路径)");
       RCLCPP_INFO(node_->get_logger(), "Reference path accepted");
     }
     // 失败 → 报错
@@ -880,10 +900,19 @@ namespace scan_planner
           reference_tf_jump_failed_ = true;
           callEmergencyStop(odom_pos_);
           flag_escape_emergency_ = false;
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+              "[规划失败] 原因=TF跳变后规划失败");
           changeFSMExecState(EMERGENCY_STOP, "TF_JUMP_FAIL");
         }
         else
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+            "[规划失败] 原因=单次重规划失败(将重试) 次数=%d",
+            replan_fail_count_);
         replan_fail_count_++;
         changeFSMExecState(GEN_NEW_TRAJ, "FSM");
       }
@@ -924,11 +953,20 @@ namespace scan_planner
           reference_tf_jump_failed_ = true;
           callEmergencyStop(odom_pos_);
           flag_escape_emergency_ = false;
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock1(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock1, 1000,
+              "[规划失败] 原因=TF跳变后规划失败");
           changeFSMExecState(EMERGENCY_STOP, "TF_JUMP_FAIL");
         }
         else
       {
         // 失败 → 计数 +1，保持重规划状态继续尝试
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock1(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock1, 1000,
+            "[规划失败] 原因=单次重规划失败(将重试) 次数=%d",
+            replan_fail_count_);
         replan_fail_count_++;
         changeFSMExecState(REPLAN_TRAJ, "FSM");
       }
@@ -969,6 +1007,11 @@ namespace scan_planner
           return;
         }
         // 规划失败 → 计数 +1，仍然要求重新生成新轨迹
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock2(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock2, 1000,
+            "[规划失败] 原因=单次重规划失败(将重试) 次数=%d",
+            replan_fail_count_);
         replan_fail_count_++;
         changeFSMExecState(GEN_NEW_TRAJ, "FSM");
         return;
@@ -987,6 +1030,11 @@ namespace scan_planner
             changeFSMExecState(GEN_NEW_TRAJ, "FSM");
             return;
           }
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock3(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock3, 1000,
+              "[规划失败] 原因=单次重规划失败(将重试) 次数=%d",
+              replan_fail_count_);
           replan_fail_count_++;
           changeFSMExecState(GEN_NEW_TRAJ, "FSM");
           return;
@@ -1087,6 +1135,11 @@ namespace scan_planner
     // 失败次数达到上限 → 强制进入急停
     if (replan_fail_count_ >= max_replan_fail_count_)
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+          "[规划失败] 原因=连续重规划失败达上限 次数=%d",
+          replan_fail_count_);
       RCLCPP_WARN(node_->get_logger(),
                   "Replan failed %d times; emergency stop and wait for a new target", replan_fail_count_);
       // 计数清零；标记“需要悬停停下”；允许从急停恢复
@@ -1270,6 +1323,10 @@ namespace scan_planner
           reference_tf_stop_ = true;
           callEmergencyStop(odom_pos_);
           flag_escape_emergency_ = false;
+          // ===== 临时诊断（测试用，可整段删除）=====
+          static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+          RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+              "[规划失败] 原因=TF缺失期间碰撞");
           changeFSMExecState(EMERGENCY_STOP, "TF_MISSING_COLLISION");
           return;
         }
@@ -1286,6 +1343,11 @@ namespace scan_planner
           if (t - t_cur < emergency_time_) // 0.8s of emergency time
           {
             // 打警告：多少秒后就要撞上了
+            // ===== 临时诊断（测试用，可整段删除）=====
+            static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+            RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+                "[规划失败] 原因=碰撞且来不及绕开 距碰撞=%.3fs",
+                t - t_cur);
             RCLCPP_WARN(node_->get_logger(), "Obstacle discovered; emergency stop in %.3fs", t - t_cur);
             changeFSMExecState(EMERGENCY_STOP, "SAFETY");
           }
@@ -1470,6 +1532,10 @@ namespace scan_planner
     }
     catch (const tf2::TransformException &error)
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+          "[规划失败] 原因=参考TF不可用");
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
                            "Reference TF unavailable: %s", error.what());
       return false;
@@ -1494,6 +1560,10 @@ namespace scan_planner
                                   reference_tf_grace_) &&
           !reference_tf_stop_)
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+            "[规划失败] 原因=参考TF缺失超时");
         RCLCPP_ERROR(node_->get_logger(), "Reference TF missing for %.2f s; stopping",
                      reference_tf_grace_);
         reference_tf_stop_ = true;
@@ -1646,6 +1716,10 @@ namespace scan_planner
       // 没找到 → 打警告（保持原目标，稍后会因碰撞触发重规划）
       else
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
+            "[规划失败] 原因=局部目标被占");
         RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
                              "Local target is in collision and no nearby free target was found");
         return false;

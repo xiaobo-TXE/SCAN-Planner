@@ -213,6 +213,10 @@ ASTAR_RET AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d
     // 把起终点转成格子坐标（必要时从障碍里挪出来）
     if (!ConvertToIndexAndAdjustStartEndPoints(start_pt, end_pt, start_idx, end_idx))
     {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock_a(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("path_searching"), diag_clock_a, 1000,
+            "[规划失败] 原因=A星起终点错误");
         RCLCPP_ERROR(rclcpp::get_logger("path_searching"),
                      "Unable to handle the initial or end point, force return!");
         // 起终点有问题 → 返回“初始化错误”
@@ -377,6 +381,10 @@ ASTAR_RET AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d
         // 超过 0.2 秒还没搜完 → 放弃本次搜索
         if (std::chrono::duration<double>(time_2 - time_1).count() > 0.2)
         {
+            // ===== 临时诊断（测试用，可整段删除）=====
+            static rclcpp::Clock diag_clock_b(RCL_STEADY_TIME);
+            RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("path_searching"), diag_clock_b, 1000,
+                "[规划失败] 原因=A星搜索超时");
             RCLCPP_WARN(rclcpp::get_logger("path_searching"),
                         "Failed in A-star path search: 0.2 second time limit exceeded");
             return ASTAR_RET::SEARCH_ERR;
@@ -391,6 +399,10 @@ ASTAR_RET AStar::AstarSearch(const double step_size, Vector3d start_pt, Vector3d
     if (elapsed > 0.1)
         RCLCPP_WARN(rclcpp::get_logger("path_searching"),
                     "A-star path search took %.3fs, iter=%d", elapsed, num_iter);
+    // ===== 临时诊断（测试用，可整段删除）=====
+    static rclcpp::Clock diag_clock_c(RCL_STEADY_TIME);
+    RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("path_searching"), diag_clock_c, 1000,
+        "[规划失败] 原因=A星无可行路径");
 
     // 返回“搜索失败”
     return ASTAR_RET::SEARCH_ERR;

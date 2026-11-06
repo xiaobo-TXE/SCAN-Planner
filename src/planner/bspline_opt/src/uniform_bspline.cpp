@@ -276,6 +276,8 @@ namespace scan_planner
     // 参数检查：时间间隔必须为正
     if (ts <= 0)
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      cout << "[规划失败] 原因=B样条拟合失败(时间步长非正) ts=" << ts << endl;
       cout << "[B-spline]:time step error." << endl;
       return;
     }
@@ -283,6 +285,8 @@ namespace scan_planner
     // 已知点至少要 4 个，否则解不出控制点
     if (point_set.size() <= 3)
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      cout << "[规划失败] 原因=B样条拟合失败(点数不足) 点数=" << point_set.size() << endl;
       cout << "[B-spline]:point set have only " << point_set.size() << " points." << endl;
       return;
     }
@@ -290,6 +294,8 @@ namespace scan_planner
     // 边界导数必须是 4 个：起点速度、终点速度、起点加速度、终点加速度
     if (start_end_derivative.size() != 4)
     {
+      // ===== 临时诊断（测试用，可整段删除）=====
+      cout << "[规划失败] 原因=B样条拟合失败(边界导数数量不对) 数量=" << start_end_derivative.size() << endl;
       cout << "[B-spline]:derivatives error." << endl;
     }
 

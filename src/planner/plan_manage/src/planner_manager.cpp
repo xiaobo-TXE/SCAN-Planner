@@ -299,6 +299,10 @@ namespace scan_planner
             else
             {
               // 打日志并放弃本轮规划
+              // ===== 临时诊断（测试用，可整段删除）=====
+              static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+              RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("planner_manager"), diag_clock0, 1000,
+                  "[规划失败] 原因=旧轨迹弧长重采样失败");
               RCLCPP_ERROR(node_->get_logger(), "pseudo_arc_length is empty; aborting replan");
               continuous_failures_count_++;
               return false;
@@ -423,6 +427,10 @@ namespace scan_planner
     if (!flag_step_2_success || !checkDynamicFeasibility(pos))
     {
       // 打印蓝色警告并放弃（绝不把不安全的轨迹发出去）
+      // ===== 临时诊断（测试用，可整段删除）=====
+      static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+      RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("planner_manager"), diag_clock0, 1000,
+          "[规划失败] 原因=细化后不安全或动力学不可行");
       printf("\033[34mThis refined trajectory is unsafe or dynamically infeasible. Skip publishing it.\n\033[0m");
       continuous_failures_count_++;
       return false;
@@ -711,6 +719,10 @@ namespace scan_planner
       // 超速 → 打印警告并判定这条轨迹不可行
       if (vel.norm() > vel_limit)
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("planner_manager"), diag_clock0, 1000,
+            "[规划失败] 原因=速度超限");
         RCLCPP_WARN(node_->get_logger(),
                     "Dynamic feasibility failed: velocity at t=%.3f is %.3f > %.3f",
                     tc, vel.norm(), vel_limit);
@@ -722,6 +734,10 @@ namespace scan_planner
       // 超加速度 → 同样判定不可行
       if (acc.norm() > acc_limit)
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("planner_manager"), diag_clock0, 1000,
+            "[规划失败] 原因=加速度超限");
         RCLCPP_WARN(node_->get_logger(),
                     "Dynamic feasibility failed: acceleration at t=%.3f is %.3f > %.3f",
                     tc, acc.norm(), acc_limit);
