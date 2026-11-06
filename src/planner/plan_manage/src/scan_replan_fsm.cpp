@@ -1314,8 +1314,13 @@ namespace scan_planner
       // 再取后面一点点位置，用两点连线方向估计机器人的朝向
       Eigen::Vector3d pos_next = info->position_traj_.evaluateDeBoorT(std::min(t + time_step, info->duration_));
       // 问地图：机器人以这个朝向待在这里，会不会撞？
-      if (map->getInflateOccupancy(pos, estimateYawFromSegment(pos, pos_next)))
+      const int diag_occ_hit = map->getInflateOccupancy(pos, estimateYawFromSegment(pos, pos_next));  // 临时诊断
+      if (diag_occ_hit)  // 临时诊断：原为 map->getInflateOccupancy(pos, estimateYawFromSegment(pos, pos_next))
       {
+        // ===== 临时诊断（测试用，可整段删除）=====
+        static rclcpp::Clock diag_clock_hit(RCL_STEADY_TIME);
+        RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock_hit, 1000,
+            "[规划失败] 原因=轨迹上检测到碰撞 占位=%d(1=障碍 -1=出图)", diag_occ_hit);
         // 参考 TF 缺失期间又检测到碰撞 → 直接急停（此时无法确认参考路径是否仍安全）
         if (navi_mode_ == NAVI_MODE::REFERENCE_PATH &&
             reference_tf_missing_since_.nanoseconds() != 0)
@@ -1719,7 +1724,8 @@ namespace scan_planner
         // ===== 临时诊断（测试用，可整段删除）=====
         static rclcpp::Clock diag_clock0(RCL_STEADY_TIME);
         RCLCPP_ERROR_THROTTLE(rclcpp::get_logger("scan_replan_fsm"), diag_clock0, 1000,
-            "[规划失败] 原因=局部目标被占");
+            "[规划失败] 原因=局部目标被占 占位=%d(1=障碍 -1=出图)",
+            targetOccupancy(local_target_pt_));
         RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 1000,
                              "Local target is in collision and no nearby free target was found");
         return false;
